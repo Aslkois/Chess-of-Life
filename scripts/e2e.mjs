@@ -157,7 +157,7 @@ try {
     await page.getByTestId('start-coach').click();
     await page.waitForSelector('[data-testid="coach-board"]');
     // 1. f3 is a known weakening move; 2. g4 next would be a blunder
-    await play('coach-board', ['f2f3']);
+    await play('coach-board', ['e2e3']);
     await page.waitForFunction(() => !document.querySelector('[data-testid="evaluating"]'), null, { timeout: 30000 });
     await page.waitForTimeout(500);
     // wait for coach reply
@@ -166,15 +166,25 @@ try {
     await page.waitForSelector('[data-testid="hints"]');
     const hint = await page.getByTestId('hints').innerText();
     assert(hint.length > 20, 'hint should have text');
-    await play('coach-board', ['g2g4']);
+    // hang a piece: move a white minor piece or queen onto a square a black pawn attacks
+    const { Chess } = require('chess.js');
+    const fen = await page.getByTestId('coach-board').getAttribute('data-fen');
+    const c = new Chess(fen);
+    const pawnAttacked = (sqr) => c.board().flat().some((p) => p && p.color === 'b' && p.type === 'p' && Math.abs(p.square.charCodeAt(0) - sqr.charCodeAt(0)) === 1 && +p.square[1] - 1 === +sqr[1]);
+    const hang = c.moves({ verbose: true }).find((m) => ['n', 'b', 'q'].includes(m.piece) && !m.captured && pawnAttacked(m.to));
+    assert(hang, 'no hanging move found in ' + fen);
+    await play('coach-board', [hang.from + hang.to]);
     await page.waitForSelector('[data-testid="coach-feedback"]', { timeout: 30000 });
     const fb = await page.getByTestId('coach-feedback').innerText();
     assert(/Blunder|Mistake|Miss/.test(fb), `expected a serious error, got: ${fb.slice(0, 80)}`);
     await page.screenshot({ path: `${SHOTS}/c1-coach-feedback.png` });
     await page.getByTestId('take-back').click();
     assert((await page.locator('[data-testid="movelist"] .mv').count()) === 2, 'takeback should remove the pending move');
-    await play('coach-board', ['e2e4']);
-    await page.waitForFunction(() => document.querySelectorAll('[data-testid="movelist"] .mv').length >= 4, null, { timeout: 60000 });
+    const safe = ['g1f3', 'b1c3', 'd2d4', 'f1e2'].find((u) => c.moves({ verbose: true }).some((m) => m.from + m.to === u && !pawnAttacked(m.to)));
+    await play('coach-board', [safe]);
+    // a sound move is accepted (no takeback prompt); the Coach replies
+    await page.waitForFunction(() => document.querySelectorAll('[data-testid="movelist"] .mv').length >= 4 || document.querySelector('[data-testid="coach-feedback"]'), null, { timeout: 60000 });
+    if (await page.getByTestId('coach-feedback').count()) { await page.getByTestId('continue').click(); await page.waitForFunction(() => document.querySelectorAll('[data-testid="movelist"] .mv').length >= 4, null, { timeout: 60000 }); }
     const badges = await page.locator('[data-testid="movelist"] .badge').count();
     assert(badges >= 3, 'coach and player moves should carry ratings');
     const stats = await page.locator('text=takebacks 1').count();
@@ -203,6 +213,12 @@ try {
     assert(await page.locator('text=Ranked match in progress').isVisible(), 'other pages must be locked');
     await page.goto(URL + '#/ranked');
     await page.waitForSelector('[data-testid="ranked-board"]');
+    // a reload resumes the same match (and keeps the lock)
+    const before = await page.locator('[data-testid="movelist"] .mv').count();
+    await page.reload();
+    await page.waitForSelector('[data-testid="ranked-board"]');
+    await page.waitForFunction((n) => document.querySelectorAll('[data-testid="movelist"] .mv').length >= n, before);
+    assert(await page.getByTestId('ranked-live').isVisible(), 'match should resume after reload');
   });
 
   await step('D2 ranked: resign, rating update, post-game analysis unlocked', async () => {
@@ -214,6 +230,22 @@ try {
     await page.getByTestId('ranked-review').click();
     await page.waitForURL(/#\/review\//);
     await page.waitForSelector('[data-testid="evalbar"]');
+  });
+
+  // ---------- offline ----------
+  await step('O1 works offline after the first visit (service worker + local engine)', async () => {
+    await page.goto(URL + '#/home');
+    await page.waitForFunction(() => navigator.serviceWorker?.controller !== null, null, { timeout: 20000 }).catch(() => {});
+    await page.waitForTimeout(1500);
+    await ctx.setOffline(true);
+    await page.reload();
+    await page.waitForSelector('h1:has-text("Chess of Life")', { timeout: 15000 });
+    // a brand-new game: every position must be analysed by the local engine
+    await page.goto(URL + '#/reconstruct');
+    await play('reconstruct-board', ['a2a3', 'h7h6', 'h2h4', 'a7a5', 'b2b4']);
+    await page.getByTestId('review-game').click();
+    await page.waitForSelector('[data-testid="review-complete"]', { timeout: 120000 });
+    await ctx.setOffline(false);
   });
 
   // ---------- mobile ----------

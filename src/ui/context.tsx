@@ -10,6 +10,8 @@ interface AppCtx {
   engineStatus: EngineStatus;
   /** id of a Ranked match in progress: all assistance is locked while set */
   activeRanked: string | null;
+  /** true once the stored active-match id has been read */
+  rankedLoaded: boolean;
   setActiveRanked: (id: string | null) => void;
   toast: (msg: string) => void;
   toasts: { id: number; msg: string }[];
@@ -21,10 +23,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [prefs, setP] = useState<Preferences>(DEFAULT_PREFS);
   const [engineStatus, setStatus] = useState<EngineStatus>({ ready: false, busy: false, queued: 0, restarts: 0 });
   const [activeRanked, setAR] = useState<string | null>(null);
+  const [rankedLoaded, setRankedLoaded] = useState(false);
   const [toasts, setToasts] = useState<{ id: number; msg: string }[]>([]);
   useEffect(() => {
     getPrefs().then(setP).catch(() => {});
-    getMeta<string | null>('activeRanked').then((v) => setAR(v ?? null)).catch(() => {});
+    getMeta<string | null>('activeRanked').then((v) => setAR(v ?? null)).catch(() => {}).finally(() => setRankedLoaded(true));
     return getEngine().subscribe(setStatus);
   }, []);
   const updatePrefs = useCallback((p: Partial<Preferences>) => {
@@ -43,7 +46,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setToasts((t) => [...t, { id, msg }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3500);
   }, []);
-  return <Ctx.Provider value={{ prefs, updatePrefs, engineStatus, activeRanked, setActiveRanked, toast, toasts }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ prefs, updatePrefs, engineStatus, activeRanked, rankedLoaded, setActiveRanked, toast, toasts }}>{children}</Ctx.Provider>;
 }
 
 export function useApp(): AppCtx {

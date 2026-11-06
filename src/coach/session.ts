@@ -106,7 +106,7 @@ export function commitCoachMove(s: CoachState, uci: string, info: { cls: CoachMo
   return commit(s, uci, { by: 'coach', ...info, assisted: false });
 }
 
-export function useHint(s: CoachState): CoachState {
+export function recordHint(s: CoachState): CoachState {
   return { ...s, hintsThisMove: s.hintsThisMove + 1, session: { ...s.session, hintsUsed: s.session.hintsUsed + 1, updatedAt: Date.now() } };
 }
 

@@ -29,7 +29,7 @@ import type { GameReview } from '../analysis/review';
  * reachable while the game is in progress.
  */
 export function RankedPage() {
-  const { activeRanked, setActiveRanked, prefs } = useApp();
+  const { activeRanked, rankedLoaded, setActiveRanked, prefs } = useApp();
   const [rs, setRsRaw] = useState<RankedState | null>(null);
   const rsRef = useRef<RankedState | null>(null);
   const setRs = (s: RankedState | null) => { rsRef.current = s; setRsRaw(s); if (s) void saveMatch(s.match); };
@@ -45,8 +45,10 @@ export function RankedPage() {
   const thinking = useRef<number>(-1);
   const finishing = useRef<string | null>(null);
 
+  useEffect(() => { loadRankedProfile().then(setProfile); }, []);
+  // resume a match in progress (the active id is read asynchronously at start-up)
   useEffect(() => {
-    loadRankedProfile().then(setProfile);
+    if (!rankedLoaded || rsRef.current) return;
     if (activeRanked) {
       get('rankedMatches', activeRanked).then((m) => {
         if (m && m.status === 'active') {
@@ -57,7 +59,7 @@ export function RankedPage() {
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [rankedLoaded, activeRanked]);
 
   // clock tick + flag
   useEffect(() => {
@@ -189,6 +191,8 @@ export function RankedPage() {
     setRs(d);
     void finish(d);
   };
+
+  if (!rankedLoaded || (activeRanked && !rs)) return <div className="empty">Loading match…</div>;
 
   // ---------- setup ----------
   if (!rs || (rs.match.status !== 'active' && !finished)) {

@@ -27,7 +27,7 @@ const NAV = [
 
 export function App() {
   const route = useRoute();
-  const { engineStatus, activeRanked, toasts } = useApp();
+  const { engineStatus, activeRanked, rankedLoaded, toasts } = useApp();
   const [menu, setMenu] = useState(false);
   useEffect(() => setMenu(false), [route.page, route.params.join('/')]);
 
@@ -35,7 +35,9 @@ export function App() {
   const locked = !!activeRanked && route.page !== 'ranked';
 
   let page: JSX.Element;
-  if (locked) {
+  if (!rankedLoaded) {
+    page = <div className="empty">Loading…</div>;
+  } else if (locked) {
     page = (
       <div className="card" style={{ maxWidth: 560 }}>
         <div className="lock-banner"><IconLock /><h2 style={{ margin: 0 }}>Ranked match in progress</h2></div>

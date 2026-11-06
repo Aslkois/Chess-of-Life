@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { Chess } from 'chess.js';
-import { commitCoachMove, commitPending, isPlayerTurn, proposeMove, restoreCoachState, sessionStats, setAttemptEvaluation, startCoachSession, takeBack, useHint } from '../src/coach/session';
+import { commitCoachMove, commitPending, isPlayerTurn, proposeMove, restoreCoachState, sessionStats, setAttemptEvaluation, startCoachSession, takeBack, recordHint } from '../src/coach/session';
 import { emptyProfile, focusAreas, isMastered, recordDecision } from '../src/coach/profile';
 import { buildHints, hintRevealsMove } from '../src/coach/hints';
 import { assessTeachingValue, gradePrediction } from '../src/coach/prediction';
@@ -20,7 +20,7 @@ describe('Coach session: takebacks and learning history', () => {
     s = takeBack(s);
     expect(s.pending).toBeNull();
     expect(s.session.moves).toEqual([]);
-    s = useHint(s);
+    s = recordHint(s);
     r = proposeMove(s, mv('e2e4'));
     s = setAttemptEvaluation(r.state, r.attempt.id, { cls: 'best', epl: 0, provisional: false });
     s = commitPending(s, { cls: 'best', epl: 0, provisional: false, depth: 12 });

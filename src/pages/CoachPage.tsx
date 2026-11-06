@@ -20,7 +20,7 @@ import { focusAreas, isMastered, type LearningProfile } from '../coach/profile';
 import { SKILLS, rating, tagSkills, type Skill } from '../coach/skills';
 import {
   commitCoachMove, commitPending, currentFen, isPlayerTurn, proposeMove, resignCoach, restoreCoachState, sessionStats,
-  setAttemptEvaluation, startCoachSession, takeBack, updateMoveInfo, useHint, type CoachState,
+  setAttemptEvaluation, startCoachSession, takeBack, updateMoveInfo, recordHint, type CoachState,
 } from '../coach/session';
 import { evidenceFromAttempt, finishCoachGame, loadCoachProfile, persistCoachState, saveCoachProfile, savePrediction } from '../services/coach';
 import { attemptsForSession, get, getMeta, setMeta } from '../db/db';
@@ -309,7 +309,7 @@ export function CoachPage() {
       hs = buildHints(currentFen(s), a);
       setHints(hs);
     }
-    setSt(useHint(stRef.current!));
+    setSt(recordHint(stRef.current!));
     setShownHints((n) => n + 1);
   };
 
