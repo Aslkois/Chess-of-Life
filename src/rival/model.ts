@@ -1,6 +1,6 @@
 import { Chess } from 'chess.js';
 import type { GameReview } from '../analysis/review';
-import { addOutcome, emptyStat, outcomeOf, rating, SKILLS, tagSkills, type Skill, type SkillStat } from '../coach/skills';
+import { addOutcome, emptyStat, isInformative, outcomeOf, rating, SKILLS, tagSkills, type Skill, type SkillStat } from '../coach/skills';
 import { parseBoard, type Board } from '../analysis/board';
 
 /**
@@ -89,6 +89,13 @@ export function updateRivalModel(prev: RivalModel, g: RankedGameData): ModelUpda
     }
     const fenBefore = g.fens[i];
     const next = g.review.moves[i + 1];
+    total++;
+    try {
+      const c = new Chess(fenBefore);
+      const mo = c.move({ from: mv.uci.slice(0, 2), to: mv.uci.slice(2, 4), promotion: mv.uci[4] });
+      if (mo.captured || mo.san.includes('+')) forcing++;
+    } catch { /* ignore */ }
+    if (!isInformative(mv.winBefore, mv.epl)) continue; // decided positions are not evidence
     const tags = tagSkills({ fenBefore, uci: mv.uci, bestUci: mv.bestUci, epl: mv.epl, ply: mv.ply, winBest: mv.winBefore, replyUci: next?.bestUci ?? undefined });
     const out = outcomeOf(mv.epl);
     for (const t of tags) {
@@ -113,13 +120,6 @@ export function updateRivalModel(prev: RivalModel, g: RankedGameData): ModelUpda
     // reaction to a Rival sacrifice on the previous move
     const prevRival = i >= 1 ? g.review.moves[i - 1] : undefined;
     if (prevRival && prevRival.color !== g.playerColor && prevRival.sacrifice >= 2) m.vsSacrifice = addOutcome(m.vsSacrifice, out);
-    // aggression
-    total++;
-    try {
-      const c = new Chess(fenBefore);
-      const mo = c.move({ from: mv.uci.slice(0, 2), to: mv.uci.slice(2, 4), promotion: mv.uci[4] });
-      if (mo.captured || mo.san.includes('+')) forcing++;
-    } catch { /* ignore */ }
   }
   m.aggression = { forcing: m.aggression.forcing + forcing, total: m.aggression.total + total };
 

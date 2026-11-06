@@ -128,10 +128,10 @@ export function classifyMove(ctx: MoveContext): MoveClassification {
 
   if (forced) {
     notes.push('Only legal move.');
-    return { ...base, cls: 'best', accuracy: 100 };
+    return { ...base, cls: 'best', accuracy: 100, provisional: false };
   }
   if (ctx.isBook && epl < THRESHOLDS.mistake) {
-    return { ...base, cls: 'book' };
+    return { ...base, cls: 'book', provisional: false };
   }
 
   // Is the played move equivalent to the top line?

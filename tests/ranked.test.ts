@@ -148,6 +148,15 @@ describe('Rival adaptation', () => {
     expect(deriveStrategy(m, 'b')).toEqual(strat); // deterministic
   });
 
+  it('ignores decisions made in already-decided positions', () => {
+    const fen = 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3';
+    const lost: Partial<MoveReview>[] = [];
+    for (let i = 0; i < 20; i++) lost.push({ color: 'w', uci: 'f1c4', bestUci: 'f1b5', epl: 0, ply: 41, winBefore: 0.5, phase: 'middlegame', sacrifice: 0 });
+    const m = updateRivalModel(emptyRivalModel(), { matchId: 'x', playerColor: 'w', score: 0, opening: null, review: fakeReview(lost), fens: new Array(21).fill(fen), timeSpent: [], clockAfter: [], initialMs: 0 }).model;
+    expect(Object.values(m.skills).every((s) => s.n === 0)).toBe(true);
+    expect(m.aggression.total).toBe(20);
+  });
+
   it('strategy only reorders moves inside the quality tolerance', () => {
     const fen = 'rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2';
     const a = res(fen, [['Nc6', { cp: -30 }], ['d6', { cp: -15 }], ['Qh4', { cp: 250 }]]);

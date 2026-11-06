@@ -157,5 +157,9 @@ describe('Predict the Opponent selection', () => {
     const weak = gradePrediction(fen, 'a2a3', 'g1f3', analysis, 30);
     expect(weak.grade).toBe('missed');
     expect(gradePrediction(fen, null, 'g1f3', analysis).grade).toBe('skipped');
+    // the Coach played a weaker move than the most dangerous one: the lesson must not call it the most dangerous
+    const weaker = gradePrediction(fen, 'b1c3', 'd1h5', analysis);
+    expect(weaker.grade).toBe('strong');
+    expect(weaker.lesson.join(' ')).toMatch(/Coach actually chose Qh5/);
   });
 });

@@ -1,7 +1,7 @@
 import { all, get, put } from '../db/db';
 import type { CoachAttempt, PredictionRecord } from '../db/types';
 import { emptyProfile, recordDecision, recordPrediction, adaptCoachLevel, type LearningProfile } from '../coach/profile';
-import { outcomeOf, tagSkills } from '../coach/skills';
+import { isInformative, outcomeOf, tagSkills } from '../coach/skills';
 import type { CoachState } from '../coach/session';
 import { gameFromMoves, saveGame } from './games';
 import { newId } from '../util/id';
@@ -26,6 +26,7 @@ export async function persistCoachState(s: CoachState) {
  */
 export function evidenceFromAttempt(p: LearningProfile, a: CoachAttempt, bestUci: string | null, winBest: number, replyUci?: string, errorMotifs: string[] = []): LearningProfile {
   if (a.epl === null) return p;
+  if (!isInformative(winBest, a.epl)) return a.tookBack ? { ...p, takebacks: p.takebacks + 1 } : p;
   const skills = tagSkills({ fenBefore: a.fen, uci: a.uci, bestUci, epl: a.epl, ply: a.ply + 1, winBest, replyUci });
   let next = recordDecision(p, { skills, outcome: outcomeOf(a.epl), independent: a.independent, errorMotifs });
   if (a.tookBack) next = { ...next, takebacks: next.takebacks + 1 };

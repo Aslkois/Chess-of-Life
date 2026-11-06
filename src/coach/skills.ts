@@ -75,6 +75,18 @@ export function tagSkills(e: MoveEvidence): Skill[] {
   return [...tags];
 }
 
+/**
+ * Does this decision say anything about skill? In a position that is already
+ * decided (the mover's best winning chance is below 3 %, or above 97 % and
+ * the move kept it) no move can lose meaningful expected points, so it is
+ * not counted as evidence either way.
+ */
+export function isInformative(winBest: number, epl: number): boolean {
+  if (winBest < 3) return false;
+  if (winBest > 97 && epl < 5) return false;
+  return true;
+}
+
 /** Outcome score of a decision: 1 = success, 0 = failure, 0.5 = partial. */
 export function outcomeOf(epl: number): number {
   if (epl < 5) return 1;

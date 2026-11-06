@@ -112,23 +112,26 @@ export function gradePrediction(fen: string, predictedUci: string | null, actual
   const c = new Chess(fen);
   const side = c.turn();
   const actualSan = uciToSan(fen, actualUci);
+  const bestUci = analysis.bestmove ?? analysis.lines[0]?.pv[0] ?? actualUci;
+  const bestSan = uciToSan(fen, bestUci);
   const lesson: string[] = [];
+  // the lesson is about the most dangerous reply (the engine's best), which is what the player should anticipate
   try {
-    const facts = analyzeMove(fen, actualUci);
+    const facts = analyzeMove(fen, bestUci);
     const key = facts.motifs.filter((m) => !['capture', 'castles'].includes(m.kind)).slice(0, 2);
-    if (key.length) lesson.push(`${actualSan}: ${key.map((m) => m.text).join(' ')}`);
-    const mat = materialAlongLine(fen, analysis.lines.find((l) => l.pv[0] === actualUci)?.pv ?? [actualUci], side);
-    if (mat.delta >= 1) lesson.push(`With best play this wins about ${mat.delta} pawn${mat.delta === 1 ? '' : 's'} of material.`);
+    if (key.length) lesson.push(`${bestSan}: ${key.map((m) => m.text).join(' ')}`);
+    const mat = materialAlongLine(fen, analysis.lines.find((l) => l.pv[0] === bestUci)?.pv ?? [bestUci], side);
+    if (mat.delta >= 1) lesson.push(`With best play ${bestSan} wins about ${mat.delta} pawn${mat.delta === 1 ? '' : 's'} of material.`);
   } catch { /* ignore */ }
+  if (bestUci !== actualUci) lesson.push(`The Coach actually chose ${actualSan} — at its current level it does not always play the strongest move.`);
   if (!predictedUci) return { grade: 'skipped', outcome: 0.5, predictedSan: null, actualSan, lesson };
   const predictedSan = uciToSan(fen, predictedUci);
-  if (predictedUci === actualUci) return { grade: 'exact', outcome: 1, predictedSan, actualSan, lesson: [`You saw it coming.`, ...lesson] };
   const bestWin = analysis.lines[0] ? winPercentPov(analysis.lines[0].score, side) : 50;
   const inLines = analysis.lines.find((l) => l.pv[0] === predictedUci);
   const pw = inLines ? winPercentPov(inLines.score, side) : predictedWin;
-  if (pw === undefined) return { grade: 'missed', outcome: 0, predictedSan, actualSan, lesson };
-  const loss = bestWin - pw;
-  if (loss < 5) return { grade: 'strong', outcome: 1, predictedSan, actualSan, lesson: [`${predictedSan} is also a strong reply — the opponent had more than one good option.`, ...lesson] };
-  if (loss < 12) return { grade: 'reasonable', outcome: 0.5, predictedSan, actualSan, lesson: [`${predictedSan} is playable, but ${actualSan} is more dangerous.`, ...lesson] };
-  return { grade: 'missed', outcome: 0, predictedSan, actualSan, lesson: [`${predictedSan} would not trouble you much; the real danger was elsewhere.`, ...lesson] };
+  const loss = pw === undefined ? Infinity : bestWin - pw;
+  if (predictedUci === actualUci && loss < 12) return { grade: 'exact', outcome: 1, predictedSan, actualSan, lesson: ['You saw it coming.', ...lesson] };
+  if (predictedUci === bestUci || loss < 5) return { grade: 'strong', outcome: 1, predictedSan, actualSan, lesson: [predictedUci === bestUci ? `${predictedSan} was the most dangerous reply.` : `${predictedSan} is also a strong reply — the opponent had more than one good option.`, ...lesson] };
+  if (loss < 12) return { grade: 'reasonable', outcome: 0.5, predictedSan, actualSan, lesson: [`${predictedSan} is playable, but the most dangerous reply was ${bestSan}.`, ...lesson] };
+  return { grade: 'missed', outcome: 0, predictedSan, actualSan, lesson: [`${predictedSan} would not trouble you much; the real danger was ${bestSan}.`, ...lesson] };
 }

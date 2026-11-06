@@ -89,16 +89,26 @@ export function explainForReview(fenBefore: string, uci: string, color: Color, c
   let fenAfter: string;
   try { fenAfter = analyzeMove(fenBefore, uci).fenAfter; } catch { return out; }
 
+  let explained = played.length > 0;
+  const mateAgainst = (c.scoreAfter.mate !== undefined || c.scoreAfter.mated !== undefined) && povCp(c.scoreAfter, color) < 0;
   if (c.epl >= 5 && afterPv.length) {
     // what does the opponent get?
     const replySan = uciToSan(fenAfter, afterPv[0]);
     try {
       const reply = analyzeMove(fenAfter, afterPv[0]);
       const rm = rankMotifs(reply.motifs).filter((m) => m.kind !== 'castles' && m.kind !== 'passed-pawn').slice(0, 2);
-      if (replySan && rm.length) out.push(`The strongest reply is ${replySan}: ${rm.map((m) => m.text).join(' ')}`);
+      if (replySan && rm.length) {
+        explained = true;
+        out.push(rm[0].kind === 'checkmate' ? `It allows ${replySan}, which is checkmate.` : `The strongest reply is ${replySan}: ${rm.map((m) => m.text).join(' ')}`);
+      }
     } catch { /* ignore */ }
-    const mat = materialAlongLine(fenAfter, afterPv, color);
-    if (mat.delta <= -1) out.push(`Following the engine's best line, you would be down about ${pawnsText(-mat.delta)} of material after ${mat.plies} plies.`);
+    if (mateAgainst && c.scoreAfter.mate !== undefined && Math.abs(c.scoreAfter.mate) > 1) {
+      explained = true;
+      out.push(`It allows a forced mate in ${Math.abs(c.scoreAfter.mate)}.`);
+    } else if (!mateAgainst) {
+      const mat = materialAlongLine(fenAfter, afterPv, color);
+      if (mat.delta <= -1) { explained = true; out.push(`Following the engine's best line, you would be down about ${pawnsText(-mat.delta)} of material after ${mat.plies} plies.`); }
+    }
   }
 
   if (c.bestUci && c.bestUci !== uci && c.epl >= 2) {
@@ -112,7 +122,7 @@ export function explainForReview(fenBefore: string, uci: string, color: Color, c
       if (mat.delta >= 1 && !bm.some((m) => m.kind === 'wins-hanging')) out.push(`The engine line gains about ${pawnsText(mat.delta)} of material within ${mat.plies} plies.`);
     } catch { /* ignore */ }
     out.push(`Engine line: ${line}`);
-    if (played.length === 0 && c.epl >= 10) out.push('No single tactical motif explains the difference; compare the two lines to see how the position changes.');
+    if (!explained && c.epl >= 10) out.push('No single tactical motif explains the difference; compare the two lines to see how the position changes.');
   }
   return out;
 }
