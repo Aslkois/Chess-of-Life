@@ -1,0 +1,8 @@
+node_modules
+dist
+dev-dist
+coverage
+*.log
+test-results
+playwright-report
+.DS_Store
