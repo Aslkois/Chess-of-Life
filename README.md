@@ -21,6 +21,16 @@ your browser. No account, no server, no subscription, no limits on reviews.
 | **Ranked Rival** | Competitive games with clocks (3+2 … 30+20 or untimed), resignation, draw offers, threefold / 50-move claims, automatic fivefold / 75-move / dead-position draws and FIDE time-forfeit rules. **No assistance of any kind** while the game is running — and every other part of the app is locked. The Rival plays at a fixed, calibrated level, learns only from completed Ranked games, and steers toward your demonstrated weaknesses with sound moves. Internal Glicko-2 rating, match history, adaptation log. Analysis unlocks after the game. |
 | **Data** | IndexedDB with versioned migrations: games, drafts, reviews, engine cache, branches, Coach sessions / attempts / predictions, learning profile, Ranked matches, Rival model and adaptations, preferences. Export / import a JSON backup; delete everything. Works offline after the first visit (PWA). |
 
+## Interface
+
+Game Review is one destination: it opens a chooser between **Reconstruct a
+game** and **Import PGN**. The review screen keeps the board first, with the
+selected move's rating stamped on the board, its explanation beside it, the
+notation and replay controls below, and key-moment navigation. Exploration of
+alternatives happens in a distinct Explore mode with a branch map. See
+[docs/DESIGN.md](docs/DESIGN.md) for the design system, breakpoints and
+interaction rules.
+
 ## Install and run
 
 Requirements: Node.js 18+ (tested with Node 22) and npm.
@@ -73,7 +83,7 @@ service worker makes it available offline after the first visit.
 npm test
 ```
 
-73 unit/integration tests (Vitest). Highlights: complete legal games, castling /
+75 unit/integration tests (Vitest). Highlights: complete legal games, castling /
 en passant / promotion, stalemate, insufficient material, threefold vs fivefold
 and 50 vs 75-move rules, time forfeit vs insufficient material, clocks; PGN
 import (multi-game, comments, NAGs, clocks, variations, errors, `0-0`, FEN
@@ -98,15 +108,19 @@ End-to-end check in a real browser (requires Playwright with Chromium):
 npm run build && npm run e2e
 ```
 
-It drives the production build through: reconstruct with undo/redo and
-reload → full review (Blunder found, explanation mentions the mate) → branch
-from the mistake, nested branch, engine continuation, name, comparison →
-reload persistence and PGN export with variations → multi-game PGN import with
-an illegal move → Coach game with feedback, hint, takeback and rated moves →
-Ranked game with every assistance element absent, the rest of the app locked,
-resume after reload, resignation, rating update and post-game review →
-**offline** reload and a fresh full review with the network disabled → 390 px
-mobile layout without horizontal scrolling. Screenshots go to `e2e-shots/`.
+It drives the production build through 17 checks: the Game Review chooser
+(initial focus, arrow keys, Tab containment, Escape, focus return);
+reconstruction with board and typed moves, undo/redo and reload; a full review
+where the board stamp, the move panel and the explanation agree; board flipping
+with the stamp staying on its square; rapid replay; move-list auto-scroll on a
+longer game; branching (nested branch, engine continuation, naming,
+comparison, back to game); persistence and PGN export with variations;
+under-promotion through the picker; multi-game PGN import with an illegal
+move; a Coach game with hint, feedback, takeback and rated moves; Ranked with
+every assistive element absent, the app locked, resume after reload,
+resignation and rating change; reduced motion; offline use; layouts at 1280,
+1024, 820 and 390 px without overflow and with replay controls on screen; and
+Coach feedback visible on a phone. Screenshots go to `e2e-shots/`.
 
 ## Architecture
 
@@ -160,6 +174,7 @@ Key decisions:
 * Opening reference: lichess-org/chess-openings, CC0 (`data/openings/`), built
   into `src/data/openings.json` by `npm run openings`.
 * Piece images: "Cburnett" set (CC BY-SA 3.0) bundled by react-chessboard (MIT).
+* Typeface: Bricolage Grotesque (SIL Open Font License), bundled via @fontsource.
 
 ## Limitations
 

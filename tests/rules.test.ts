@@ -89,3 +89,13 @@ describe('chess rules', () => {
     expect(cap.byBlack).toEqual(['p']);
   });
 });
+
+import { prettyDate } from '../src/util/format';
+describe('PGN date display', () => {
+  it('hides unknown parts', () => {
+    expect(prettyDate('1858.??.??')).toBe('1858');
+    expect(prettyDate('????.??.??')).toBeNull();
+    expect(prettyDate(undefined)).toBeNull();
+    expect(prettyDate('2024.05.01')).toMatch(/2024/);
+  });
+});

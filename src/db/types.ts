@@ -160,9 +160,15 @@ export interface Preferences {
   liveDepth: number;
   showLegalMoves: boolean;
   showCoordinates: boolean;
-  boardTheme: 'moss' | 'slate' | 'sand';
+  boardTheme: 'walnut' | 'moss' | 'slate' | 'sand';
   predictionExercises: boolean;
   confirmResign: boolean;
+  /** 'system' follows the OS setting; 'reduced' turns off non-essential motion */
+  motion: 'system' | 'reduced';
+  /** show the engine's best-move arrow in Game Review */
+  showBestArrow: boolean;
+  /** last-used Game Review panel tab */
+  reviewTab: 'review' | 'explore' | 'summary';
 }
 
 export const DEFAULT_PREFS: Preferences = {
@@ -171,7 +177,10 @@ export const DEFAULT_PREFS: Preferences = {
   liveDepth: 12,
   showLegalMoves: true,
   showCoordinates: true,
-  boardTheme: 'moss',
+  boardTheme: 'walnut',
   predictionExercises: true,
   confirmResign: true,
+  motion: 'system',
+  showBestArrow: false,
+  reviewTab: 'review',
 };

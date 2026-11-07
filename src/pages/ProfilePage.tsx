@@ -1,12 +1,10 @@
 import { useEffect, useState } from 'react';
 import { loadCoachProfile } from '../services/coach';
 import { listAdaptations, listMatches, loadRankedProfile, loadRivalModel } from '../services/ranked';
-import type { LearningProfile } from '../coach/profile';
-import { focusAreas } from '../coach/profile';
-import type { RivalModel } from '../rival/model';
-import { aggressionIndex, overcome, weaknesses } from '../rival/model';
+import { focusAreas, type LearningProfile } from '../coach/profile';
+import { aggressionIndex, overcome, weaknesses, type RivalModel } from '../rival/model';
 import type { RankedMatch, RankedProfile, RivalAdaptation } from '../db/types';
-import { emptyStat, rating, SKILLS } from '../coach/skills';
+import { emptyStat, rating, SKILLS, type SkillStat } from '../coach/skills';
 import { Meter } from '../ui/bits';
 import { REASON_TEXT } from '../chess/rules';
 import { playerScore } from '../rival/ranked';
@@ -25,79 +23,86 @@ export function ProfilePage() {
     listMatches().then(setMatches);
     listAdaptations().then(setAdapt);
   }, []);
-  if (!coach || !ranked || !model) return <div className="empty">Loading…</div>;
+  if (!coach || !ranked || !model) return <div className="page"><div className="empty">Loading…</div></div>;
   return (
-    <div style={{ maxWidth: 1000 }}>
-      <h1>Progress</h1>
-      <p className="muted">Two separate records. The Coach’s learning profile includes training games (with independent and assisted decisions kept apart). The Rival’s model uses only completed Ranked games.</p>
-      <div className="tabs">
-        <button className={tab === 'coach' ? 'on' : ''} onClick={() => setTab('coach')}>Learning profile (Coach)</button>
-        <button className={tab === 'ranked' ? 'on' : ''} onClick={() => setTab('ranked')}>Ranked & Rival</button>
-      </div>
+    <div className="page page-narrow">
+      <header className="page-head">
+        <div>
+          <h1>Progress</h1>
+          <div className="lede">Two separate records. Training with the Coach builds your learning profile; only finished Ranked games shape the Rival's view of you.</div>
+        </div>
+        <div className="page-head-actions">
+          <div className="seg" role="tablist" aria-label="Record">
+            <button type="button" role="tab" aria-selected={tab === 'coach'} onClick={() => setTab('coach')}>Learning profile</button>
+            <button type="button" role="tab" aria-selected={tab === 'ranked'} onClick={() => setTab('ranked')}>Ranked and Rival</button>
+          </div>
+        </div>
+      </header>
       {tab === 'coach' ? <CoachProfile p={coach} /> : <RankedView r={ranked} model={model} matches={matches} adapt={adapt} />}
     </div>
   );
 }
 
-function SkillTable({ stats, assisted }: { stats: Record<string, ReturnType<typeof emptyStat>>; assisted?: Record<string, ReturnType<typeof emptyStat>> }) {
+function SkillRows({ stats, assisted }: { stats: Record<string, SkillStat>; assisted?: Record<string, SkillStat> }) {
   return (
-    <table className="list">
-      <thead><tr><th>Skill</th><th style={{ width: '34%' }}>Estimated success (90% interval)</th><th>Decisions</th><th>Confidence</th><th>Trend</th>{assisted && <th>Assisted</th>}</tr></thead>
-      <tbody>
-        {SKILLS.map((s) => {
-          const st = stats[s.id] ?? emptyStat();
-          const r = rating(st);
-          return (
-            <tr key={s.id}>
-              <td title={s.desc}>{s.label}</td>
-              <td>{r.confidence === 'none' ? <span className="faint small">not enough evidence</span> : <div className="row" style={{ flexWrap: 'nowrap' }}><div style={{ flex: 1 }}><Meter value={r.mean} lo={Math.max(0, r.mean - r.halfWidth)} hi={Math.min(1, r.mean + r.halfWidth)} /></div><span className="mono small">{(r.mean * 100).toFixed(0)}%</span></div>}</td>
-              <td className="mono">{st.n}</td>
-              <td><span className={`pill ${r.confidence === 'good' ? 'accent' : ''}`}>{r.confidence}</span></td>
-              <td className="small">{r.trend === null ? <span className="faint">—</span> : r.trend > 0.1 ? <span style={{ color: 'var(--accent)' }}>improving</span> : r.trend < -0.1 ? <span style={{ color: '#f08a8d' }}>slipping</span> : 'steady'}</td>
-              {assisted && <td className="mono faint">{assisted[s.id]?.n ?? 0}</td>}
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+    <div>
+      {SKILLS.map((s) => {
+        const st = stats[s.id] ?? emptyStat();
+        const r = rating(st);
+        const trend = r.trend === null ? null : r.trend > 0.1 ? 'Improving' : r.trend < -0.1 ? 'Slipping' : 'Steady';
+        return (
+          <div className="skill-row" key={s.id}>
+            <div><div style={{ fontWeight: 600 }}>{s.label}</div><div className="xs faint">{s.desc}</div></div>
+            <div className="meter-cell">{r.confidence === 'none' ? <span className="small faint">Not enough evidence yet</span> : <Meter value={r.mean} lo={Math.max(0, r.mean - r.halfWidth)} hi={Math.min(1, r.mean + r.halfWidth)} />}</div>
+            <div className="small num" style={{ textAlign: 'right' }}>{r.confidence === 'none' ? <span className="faint" title="Decisions recorded out of the 5 needed for an estimate">{st.n}/5 needed</span> : `${(r.mean * 100).toFixed(0)}%`}</div>
+            <div className="small c-hide-narrow">
+              <div className="dim">{r.confidence === 'none' ? '' : `${r.confidence} confidence`}</div>
+              <div className="faint xs">{trend ?? ''}{assisted && assisted[s.id]?.n ? `${trend ? ', ' : ''}${assisted[s.id].n} assisted` : ''}</div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
 function CoachProfile({ p }: { p: LearningProfile }) {
   const focus = focusAreas(p, 3);
-  const predCats = Object.entries(p.predictions);
+  const preds = Object.entries(p.predictions);
   return (
-    <div>
-      <div className="card">
-        <div className="row" style={{ gap: 28 }}>
+    <div className="stack" style={{ gap: 'var(--s-4)' }}>
+      <section className="surface surface-pad">
+        <div className="stats">
           <div className="stat"><b>{p.games}</b><span>Coach games</span></div>
           <div className="stat"><b>{p.movesIndependent}</b><span>independent decisions</span></div>
-          <div className="stat"><b>{p.movesAssisted}</b><span>assisted decisions</span></div>
-          <div className="stat"><b>{p.takebacks}</b><span>takebacks</span></div>
-          <div className="stat"><b>{p.hintsUsed}</b><span>hints</span></div>
+          <div className="stat"><b>{p.movesAssisted}</b><span>after a takeback or hint</span></div>
           <div className="stat"><b>{p.coachLevel}</b><span>Coach level</span></div>
         </div>
+        <p className="small dim" style={{ margin: 'var(--s-4) 0 0' }}>
+          {focus.length ? <>Practise next: {focus.map((f) => SKILLS.find((s) => s.id === f.skill)?.label).join(', ')}.</> : 'A handful of games is not enough to describe your play reliably, so nothing is claimed yet.'}
+        </p>
+      </section>
+      <section className="surface surface-pad">
+        <h2 style={{ marginBottom: 'var(--s-1)' }}>Skills</h2>
+        <p className="small faint">From first tries made without hints. A move counts as a success when it loses less than 5 of 100 expected points. Ranges narrow as evidence builds up.</p>
+        <SkillRows stats={p.independent} assisted={p.assisted} />
+      </section>
+      <div className="grid-2">
+        <section className="surface surface-pad">
+          <h2 style={{ marginBottom: 'var(--s-3)' }}>Predict the Opponent</h2>
+          {preds.length === 0 ? <p className="small dim" style={{ margin: 0 }}>No exercises yet. They appear at important moments in Coach games.</p> : preds.map(([k, v]) => (
+            <div key={k} className="row-nowrap small" style={{ padding: '6px 0', borderTop: '1px solid var(--line)' }}><span style={{ textTransform: 'capitalize' }}>{k.replace('-', ' ')}</span><span className="spacer" /><span className="num">{v.n} exercise{v.n === 1 ? '' : 's'}, {(rating(v).mean * 100).toFixed(0)}% success</span></div>
+          ))}
+        </section>
+        <section className="surface surface-pad">
+          <h2 style={{ marginBottom: 'var(--s-3)' }}>Independent accuracy per game</h2>
+          {p.accuracyHistory.length === 0 ? <p className="small dim" style={{ margin: 0 }}>Appears after your first finished Coach game.</p> : (
+            <div className="row-nowrap" style={{ alignItems: 'flex-end', height: 90, gap: 3 }} role="img" aria-label={`Accuracy of your last ${Math.min(40, p.accuracyHistory.length)} Coach games`}>
+              {p.accuracyHistory.slice(-40).map((a, i) => <div key={i} title={`${a.accuracy.toFixed(1)}%, ${new Date(a.ts).toLocaleDateString()}`} style={{ flex: '1 1 0', maxWidth: 14, height: `${Math.max(4, a.accuracy * 0.9)}px`, background: 'var(--ivory)', borderRadius: 2, opacity: 0.85 }} />)}
+            </div>
+          )}
+        </section>
       </div>
-      <div className="card">
-        <h3>Focus areas</h3>
-        {focus.length ? <ul style={{ margin: 0, paddingLeft: 18 }}>{focus.map((f) => <li key={f.skill}>{SKILLS.find((s) => s.id === f.skill)?.label}: {(f.mean * 100).toFixed(0)}% success ({f.confidence} confidence)</li>)}</ul> : <p className="muted">Not enough evidence yet. A handful of games is not enough to describe your play reliably; the profile fills in as you play.</p>}
-      </div>
-      <div className="card" style={{ overflowX: 'auto' }}>
-        <h3>Independent decisions (first attempts, no hints)</h3>
-        <SkillTable stats={p.independent} assisted={p.assisted} />
-        <p className="faint small" style={{ marginTop: 8 }}>A decision counts as a success when it loses fewer than 5 expected points, half a success below 10. Intervals come from a Beta(1,1) prior and shrink as evidence accumulates.</p>
-      </div>
-      <div className="card">
-        <h3>Predict the Opponent</h3>
-        {predCats.length === 0 ? <p className="muted small">No exercises yet.</p> : (
-          <table className="list"><tbody>{predCats.map(([k, v]) => { const r = rating(v); return <tr key={k}><td>{k}</td><td className="mono">{v.n} exercises</td><td className="mono">{(r.mean * 100).toFixed(0)}% success</td></tr>; })}</tbody></table>
-        )}
-      </div>
-      {p.accuracyHistory.length > 0 && (
-        <div className="card"><h3>Independent accuracy per Coach game</h3>
-          <div className="row" style={{ alignItems: 'flex-end', height: 80, gap: 3 }}>{p.accuracyHistory.slice(-40).map((a, i) => <div key={i} title={`${a.accuracy.toFixed(1)}% — ${new Date(a.ts).toLocaleDateString()}`} style={{ width: 10, height: `${a.accuracy * 0.8}px`, background: 'var(--accent)', borderRadius: 2 }} />)}</div>
-        </div>
-      )}
     </div>
   );
 }
@@ -114,58 +119,61 @@ function RankedView({ r, model, matches, adapt }: { r: RankedProfile; model: Riv
   const pts = hist.map((h, i) => `${(i / Math.max(1, hist.length - 1)) * W},${H - ((h.r - lo) / (hi - lo)) * H}`).join(' ');
   const finished = matches.filter((m) => m.status === 'finished');
   return (
-    <div>
-      <div className="card">
-        <div className="row" style={{ gap: 28 }}>
+    <div className="stack" style={{ gap: 'var(--s-4)' }}>
+      <section className="surface surface-pad">
+        <div className="stats">
           <div className="stat"><b>{Math.round(r.rating.r)}</b><span>internal rating</span></div>
-          <div className="stat"><b>±{Math.round(r.rating.rd * 2)}</b><span>95% uncertainty</span></div>
-          <div className="stat"><b>{r.wins}</b><span>wins</span></div>
-          <div className="stat"><b>{r.draws}</b><span>draws</span></div>
-          <div className="stat"><b>{r.losses}</b><span>losses</span></div>
+          <div className="stat"><b>±{Math.round(r.rating.rd * 2)}</b><span>uncertainty (95%)</span></div>
+          <div className="stat"><b className="num">{r.wins}–{r.draws}–{r.losses}</b><span>wins, draws, losses</span></div>
         </div>
-        <p className="faint small" style={{ marginTop: 8 }}>Glicko-2 on Chess of Life’s internal scale (Rival level L is anchored at 700 + 100·(L−1)). It is not calibrated against FIDE or any online rating.</p>
-        {hist.length > 1 && <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 120 }} preserveAspectRatio="none"><polyline points={pts} fill="none" stroke="#8fc17a" strokeWidth="2" vectorEffect="non-scaling-stroke" /></svg>}
-      </div>
-      <div className="grid2">
-        <div className="card">
-          <h3>What the Rival has learned</h3>
-          {model.games === 0 ? <p className="muted small">Nothing yet — the Rival only learns from completed, analysed Ranked games.</p> : (
-            <>
-              <p className="small muted">{model.games} analysed Ranked game{model.games === 1 ? '' : 's'}.{agg !== null ? ` ${(agg * 100).toFixed(0)}% of your moves are checks or captures.` : ''}</p>
-              {w.length ? <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>{w.slice(0, 6).map((x) => <li key={x.id}><b>{x.label}</b> — {x.evidence} ({x.confidence} confidence)</li>)}</ul> : <p className="small muted">No weakness with enough evidence to exploit.</p>}
-              {ov.length > 0 && <p className="small" style={{ marginTop: 8 }}>Overcome: {ov.join(', ')}.</p>}
-            </>
+        {hist.length > 1 && <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 120, marginTop: 'var(--s-4)' }} preserveAspectRatio="none" role="img" aria-label="Rating history"><polyline points={pts} fill="none" stroke="#ede7d5" strokeWidth="2" vectorEffect="non-scaling-stroke" /></svg>}
+        <p className="xs faint" style={{ margin: 'var(--s-3) 0 0' }}>Glicko-2 on Chess of Life's own scale; Rival level L is anchored at 700 + 100 × (L − 1). Not calibrated against FIDE or any online rating.</p>
+      </section>
+      <div className="grid-2">
+        <section className="surface surface-pad">
+          <h2 style={{ marginBottom: 'var(--s-3)' }}>What the Rival has learned</h2>
+          {model.games === 0 ? <p className="small dim" style={{ margin: 0 }}>Nothing yet. The Rival only learns from finished, analysed Ranked games.</p> : (
+            <div className="small stack" style={{ gap: 'var(--s-2)' }}>
+              <p className="dim" style={{ margin: 0 }}>From {model.games} analysed game{model.games === 1 ? '' : 's'}.{agg !== null ? ` ${(agg * 100).toFixed(0)}% of your moves are checks or captures.` : ''}</p>
+              {w.length ? <ul className="move-explain" style={{ margin: 0 }}>{w.slice(0, 6).map((x) => <li key={x.id}><b>{x.label}</b>: {x.evidence}, {x.confidence} confidence</li>)}</ul> : <p className="dim" style={{ margin: 0 }}>No weakness with enough evidence to exploit.</p>}
+              {ov.length > 0 && <p style={{ margin: 0 }}>Overcome: {ov.join(', ')}.</p>}
+            </div>
           )}
-        </div>
-        <div className="card">
-          <h3>Openings in Ranked games</h3>
-          {Object.values(model.openings).length === 0 ? <p className="muted small">None recorded.</p> : (
-            <table className="list small"><tbody>{Object.values(model.openings).sort((a, b) => b.games - a.games).slice(0, 8).map((o) => <tr key={o.key}><td>{o.name}</td><td>as {o.playerColor === 'w' ? 'White' : 'Black'}</td><td className="mono">{o.score}/{o.games}</td></tr>)}</tbody></table>
-          )}
-        </div>
+        </section>
+        <section className="surface surface-pad">
+          <h2 style={{ marginBottom: 'var(--s-3)' }}>Openings in Ranked games</h2>
+          {Object.values(model.openings).length === 0 ? <p className="small dim" style={{ margin: 0 }}>None recorded yet.</p> : Object.values(model.openings).sort((a, b) => b.games - a.games).slice(0, 8).map((o) => (
+            <div key={o.key} className="row-nowrap small" style={{ padding: '6px 0', borderTop: '1px solid var(--line)' }}><span className="ellipsis">{o.name}</span><span className="faint">as {o.playerColor === 'w' ? 'White' : 'Black'}</span><span className="spacer" /><span className="num">{o.score}/{o.games}</span></div>
+          ))}
+        </section>
       </div>
-      <div className="card">
-        <h3>Rival adaptation history</h3>
-        {adapt.length === 0 ? <p className="muted small">No adaptations yet.</p> : adapt.slice(0, 10).map((a) => (
-          <div key={a.id} style={{ marginBottom: 10 }}>
-            <div className="faint small">{new Date(a.ts).toLocaleString()}</div>
-            <ul className="small" style={{ margin: '2px 0', paddingLeft: 18 }}>{a.changes.map((c, i) => <li key={i}>{c}</li>)}</ul>
-            {a.strategyNotes.length > 0 && <div className="small muted">Next game plan: {a.strategyNotes.join(' ')}</div>}
-          </div>
+      <section className="surface surface-pad">
+        <h2 style={{ marginBottom: 'var(--s-3)' }}>How the Rival adapted</h2>
+        {adapt.length === 0 ? <p className="small dim" style={{ margin: 0 }}>No adaptations yet.</p> : adapt.slice(0, 8).map((a) => (
+          <details key={a.id} className="disclose" style={{ borderTop: '1px solid var(--line)', padding: '4px 0' }}>
+            <summary>{new Date(a.ts).toLocaleString()}, {a.changes.length} change{a.changes.length === 1 ? '' : 's'}</summary>
+            <ul className="move-explain">{a.changes.map((c, i) => <li key={i}>{c}</li>)}</ul>
+            {a.strategyNotes.length > 0 && <p className="small dim">Plan for the next game: {a.strategyNotes.join(' ')}</p>}
+          </details>
         ))}
-      </div>
-      <div className="card" style={{ overflowX: 'auto' }}>
-        <h3>Match history</h3>
-        {finished.length === 0 ? <p className="muted small">No Ranked games yet.</p> : (
-          <table className="list"><thead><tr><th>Date</th><th>Colour</th><th>Rival</th><th>Result</th><th>Reason</th><th>Rating</th><th /></tr></thead><tbody>
+      </section>
+      <section className="surface">
+        <h2 style={{ padding: 'var(--s-5) var(--s-5) var(--s-2)' }}>Match history</h2>
+        {finished.length === 0 ? <div className="ml-empty">No Ranked games yet.</div> : (
+          <div className="side-list">
             {finished.map((m) => {
               const sc = playerScore(m);
               const d = m.ratingAfter && m.ratingBefore ? m.ratingAfter.r - m.ratingBefore.r : null;
-              return <tr key={m.id}><td>{new Date(m.createdAt).toLocaleDateString()}</td><td>{m.playerColor === 'w' ? 'White' : 'Black'}</td><td>level {m.rivalLevel}</td><td>{sc === 1 ? 'Win' : sc === 0 ? 'Loss' : 'Draw'} ({m.result})</td><td className="small muted">{m.reason ? REASON_TEXT[m.reason] : ''}</td><td className="mono">{d === null ? '—' : `${d >= 0 ? '+' : ''}${d.toFixed(1)}`}</td><td>{m.gameId && <a href={`#/review/${m.gameId}`}>review</a>}</td></tr>;
+              return (
+                <a key={m.id} href={m.gameId ? `#/review/${m.gameId}` : undefined}>
+                  <span className="title">{sc === 1 ? 'Win' : sc === 0 ? 'Loss' : 'Draw'} as {m.playerColor === 'w' ? 'White' : 'Black'} against level {m.rivalLevel}<span className="sub">{new Date(m.createdAt).toLocaleDateString()}{m.reason ? `, ${REASON_TEXT[m.reason].toLowerCase()}` : ''}</span></span>
+                  <span className="meta num" style={{ color: d === null ? undefined : d >= 0 ? 'var(--ok)' : '#f0857f' }}>{d === null ? '' : `${d >= 0 ? '+' : ''}${d.toFixed(1)}`}</span>
+                </a>
+              );
             })}
-          </tbody></table>
+          </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }
