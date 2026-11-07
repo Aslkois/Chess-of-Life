@@ -80,7 +80,7 @@ export function MoveCard({ node, parentFen, mr, live, opening, showClass, showEn
           <span className="move-san">{sanLabel}</span>
         </div>
         <div className="move-sub">
-          {explore ? (node.source === 'engine' ? 'Engine continuation' : node.source === 'imported' ? 'Variation from the PGN' : 'Your exploration') : 'Waiting for analysis'}
+          {explore ? (node.source === 'engine' ? 'Engine continuation' : node.source === 'imported' ? 'Variation from the PGN' : node.source === 'theory' ? 'Catalogued theory' : 'Your exploration') : 'Waiting for analysis'}
           {score ? `. Evaluation ${formatScore(score)}, ${winPercentPov(score, side).toFixed(0)}% winning chances for ${side === 'w' ? 'White' : 'Black'}.` : ''}
         </div>
         {node.comment && <p className="small" style={{ marginTop: 'var(--s-3)' }}>{node.comment}</p>}

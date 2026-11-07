@@ -8,6 +8,7 @@ import { emptyStat, rating, SKILLS, type SkillStat } from '../coach/skills';
 import { Meter } from '../ui/bits';
 import { REASON_TEXT } from '../chess/rules';
 import { playerScore } from '../rival/ranked';
+import { OpeningStats } from './progress/OpeningStats';
 
 export function ProfilePage() {
   const [coach, setCoach] = useState<LearningProfile | null>(null);
@@ -15,7 +16,7 @@ export function ProfilePage() {
   const [model, setModel] = useState<RivalModel | null>(null);
   const [matches, setMatches] = useState<RankedMatch[]>([]);
   const [adapt, setAdapt] = useState<RivalAdaptation[]>([]);
-  const [tab, setTab] = useState<'coach' | 'ranked'>('coach');
+  const [tab, setTab] = useState<'coach' | 'ranked' | 'openings'>('coach');
   useEffect(() => {
     loadCoachProfile().then(setCoach);
     loadRankedProfile().then(setRanked);
@@ -29,16 +30,17 @@ export function ProfilePage() {
       <header className="page-head">
         <div>
           <h1>Progress</h1>
-          <div className="lede">Two separate records. Training with the Coach builds your learning profile; only finished Ranked games shape the Rival's view of you.</div>
+          <div className="lede">Separate records. Training with the Coach builds your learning profile; only finished Ranked games shape the Rival's view of you; opening statistics come from your own saved games.</div>
         </div>
         <div className="page-head-actions">
           <div className="seg" role="tablist" aria-label="Record">
             <button type="button" role="tab" aria-selected={tab === 'coach'} onClick={() => setTab('coach')}>Learning profile</button>
             <button type="button" role="tab" aria-selected={tab === 'ranked'} onClick={() => setTab('ranked')}>Ranked and Rival</button>
+            <button type="button" role="tab" aria-selected={tab === 'openings'} onClick={() => setTab('openings')} data-testid="progress-openings">Openings</button>
           </div>
         </div>
       </header>
-      {tab === 'coach' ? <CoachProfile p={coach} /> : <RankedView r={ranked} model={model} matches={matches} adapt={adapt} />}
+      {tab === 'coach' ? <CoachProfile p={coach} /> : tab === 'ranked' ? <RankedView r={ranked} model={model} matches={matches} adapt={adapt} /> : <OpeningStats />}
     </div>
   );
 }

@@ -45,25 +45,29 @@ export function formatLine(fen: string, sans: string[]): string {
  * until it reaches a quiet point (no capture/check on the last move) or `max` plies.
  * This is how material claims are verified rather than inferred from scores.
  */
+/**
+ * Material change for `color` along a line, measured at quiet positions (no
+ * capture, promotion or check pending) so that exchanges in progress do not
+ * count. `plies` is how far into the line that final balance is first reached.
+ */
 export function materialAlongLine(fen: string, pv: string[], color: Color, max = 10): { delta: number; plies: number } {
   const c = new Chess(fen);
   const start = materialBalance(parseBoard(fen));
+  const pov = (d: number) => (color === 'w' ? d : -d);
   let plies = 0;
-  let lastQuiet = { delta: 0, plies: 0 };
+  const quiet: { delta: number; plies: number }[] = [];
   for (const u of pv.slice(0, max)) {
     let m;
     try { m = c.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] }); } catch { break; }
     plies++;
-    if (!m.captured && !m.promotion && !c.inCheck()) {
-      const d = materialBalance(parseBoard(c.fen())) - start;
-      lastQuiet = { delta: color === 'w' ? d : -d, plies };
-    }
+    if (!m.captured && !m.promotion && !c.inCheck()) quiet.push({ delta: pov(materialBalance(parseBoard(c.fen())) - start), plies });
   }
-  if (plies && lastQuiet.plies === 0) {
-    const d = materialBalance(parseBoard(c.fen())) - start;
-    return { delta: color === 'w' ? d : -d, plies };
-  }
-  return lastQuiet;
+  if (!quiet.length) return plies ? { delta: pov(materialBalance(parseBoard(c.fen())) - start), plies } : { delta: 0, plies: 0 };
+  const final = quiet[quiet.length - 1];
+  let i = quiet.length - 1;
+  while (i > 0 && quiet[i - 1].delta === final.delta) i--;
+  // a level line has not "reached" anything: report its full length
+  return final.delta === 0 ? final : { delta: final.delta, plies: quiet[i].plies };
 }
 
 const IMPORTANT: MotifKind[] = ['checkmate', 'fork', 'pin', 'skewer', 'discovered-check', 'discovered-attack', 'mate-threat', 'back-rank', 'wins-hanging', 'sacrifice', 'defender-removed', 'hanging-left', 'threat-ignored', 'overloaded-defender', 'promotion', 'passed-pawn', 'king-exposure', 'castles'];

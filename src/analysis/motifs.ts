@@ -86,6 +86,12 @@ export interface MoveFacts {
   exposedLoss: number;
   /** size of a sacrifice made by this move (0 if none), in pawns */
   sacrifice: number;
+  /**
+   * The opponent's legal captures that would actually win the offered
+   * material (net static-exchange gain of at least 2 pawns compared with the
+   * position before the move), best first. Empty when nothing is offered.
+   */
+  acceptances: { uci: string; gain: number }[];
 }
 
 /**
@@ -213,20 +219,26 @@ export function analyzeMove(fen: string, moveInput: string): MoveFacts {
     if (still && h.loss >= 2 && !mv.captured) motifs.push({ kind: 'threat-ignored', text: `The ${pn(h.piece.t)} on ${sq} was already under attack and is still not safe.`, squares: [sq], value: still.loss });
   }
 
-  // sacrifice: moved piece can be taken at a loss, created by this move
+  // sacrifice: material the opponent can really win by a legal capture
+  // sequence (corrected static exchange), created by this move
   let sacrifice = 0;
+  const acceptances: { uci: string; gain: number }[] = [];
   {
     const legal = legalCapturesFor(fenAfter, opp);
-    const capturers = attackersOf(after, to, opp).filter((a) => legal === null || legal.has(sqName(a) + mv.to));
-    if (capturers.length) {
-      let best = 0;
-      for (const a of capturers) best = Math.max(best, seeMove(after, a, to));
-      // value lost if the opponent takes, minus what we already gained by capturing
-      const net = best - immediateMaterial;
-      if (net >= 2) sacrifice = net;
-    }
-    for (const h of hangAfter) if (h.square !== mv.to && !hangBefore.has(h.square)) sacrifice = Math.max(sacrifice, h.loss);
-    if (sacrifice >= 2) motifs.push({ kind: 'sacrifice', text: `This offers material: the opponent can capture and come out about ${sacrifice} pawn${sacrifice === 1 ? '' : 's'} ahead by static count.`, squares: [mv.to], value: sacrifice });
+    const promo = (from: number, target: number) => (after[from]?.t === 'p' && (Math.floor(target / 8) === 0 || Math.floor(target / 8) === 7) ? 'q' : '');
+    const consider = (target: number, already: number) => {
+      for (const a of attackersOf(after, target, opp)) {
+        if (legal !== null && !legal.has(sqName(a) + sqName(target))) continue;
+        // value lost if the opponent takes, minus what we already gained by capturing
+        const net = seeMove(after, a, target) - already;
+        if (net >= 2) acceptances.push({ uci: sqName(a) + sqName(target) + promo(a, target), gain: net });
+      }
+    };
+    consider(to, immediateMaterial);
+    for (const h of hangAfter) if (h.square !== mv.to && !hangBefore.has(h.square)) consider(sqIdx(h.square), 0);
+    acceptances.sort((x, y) => y.gain - x.gain);
+    sacrifice = acceptances[0]?.gain ?? 0;
+    if (sacrifice >= 2) motifs.push({ kind: 'sacrifice', text: `This offers material: the opponent can capture and come out about ${sacrifice} pawn${sacrifice === 1 ? '' : 's'} ahead by static count.`, squares: [sqName(sqIdx(acceptances[0].uci.slice(2, 4)))], value: sacrifice });
   }
 
   // passed pawns
@@ -246,7 +258,7 @@ export function analyzeMove(fen: string, moveInput: string): MoveFacts {
   // overloaded defenders of the opponent (after the move)
   motifs.push(...overloaded(after, opp));
 
-  return { move: mv, fenAfter, mover, motifs, immediateMaterial, exposedLoss, sacrifice };
+  return { move: mv, fenAfter, mover, motifs, immediateMaterial, exposedLoss, sacrifice, acceptances };
 }
 
 function seeMoveSafe(b: Board, sq: number, attackerSide: Color): boolean {

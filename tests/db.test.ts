@@ -65,3 +65,17 @@ describe('IndexedDB persistence', () => {
     await expect(importBackup({ hello: 1 })).rejects.toThrow(/not a Chess of Life backup/);
   });
 });
+
+import { needsReReview } from '../src/services/reviews';
+import { REVIEW_VERSION, type GameReview } from '../src/analysis/review';
+describe('review invalidation after classification changes', () => {
+  const base = { status: 'complete', deepDepth: 16, version: REVIEW_VERSION } as unknown as GameReview;
+  it('re-runs reviews made by older rules, keeps current ones', () => {
+    expect(needsReReview(base, 16)).toBe(false);
+    expect(needsReReview({ ...base, version: 1 }, 16)).toBe(true);
+    expect(needsReReview({ ...base, version: undefined } as unknown as GameReview, 16)).toBe(true);
+    expect(needsReReview({ ...base, status: 'quick' } as GameReview, 16)).toBe(true);
+    expect(needsReReview({ ...base, deepDepth: 12 }, 16)).toBe(true);
+    expect(needsReReview(null, 16)).toBe(true);
+  });
+});

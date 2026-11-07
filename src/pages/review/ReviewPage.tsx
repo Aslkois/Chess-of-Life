@@ -1,6 +1,6 @@
 import { Chess } from 'chess.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { get } from '../../db/db';
+import { get, listGames } from '../../db/db';
 import type { GameRecord } from '../../db/types';
 import { addMove, branchStart, countBranches, deleteBranch, mainline, pathTo, preferredChild, type GameTree } from '../../chess/tree';
 import type { GameReview, MoveReview } from '../../analysis/review';
@@ -20,18 +20,25 @@ import { IconBranch, IconDownload, IconEye, IconFlip, IconKeyboard } from '../..
 import { useApp } from '../../ui/context';
 import { useKeys } from '../../ui/useKeys';
 import { gamePgn, gameTitle, queueTreeSave } from '../../services/games';
-import { ensureReview, releaseReview } from '../../services/reviews';
+import { ensureReview, needsReReview, releaseReview } from '../../services/reviews';
+import { REVIEW_VERSION } from '../../analysis/review';
 import { allowed, type Mode } from '../../modes';
 import { MoveCard } from './MoveCard';
 import { prettyDate } from '../../util/format';
 import { ExplorePanel } from './ExplorePanel';
 import { SummaryPanel } from './SummaryPanel';
+import { OpeningStrip } from './OpeningStrip';
+import { trackOpening } from '../../analysis/openings';
+import { gamesAtPosition, playerColorOf } from '../../services/openings';
+import { saveGame } from '../../services/games';
 
 type Tab = 'review' | 'explore' | 'summary';
 const KEY_CLASSES: Classification[] = ['brilliant', 'great', 'miss', 'mistake', 'blunder'];
 
 
-export function ReviewPage({ gameId }: { gameId?: string }) {
+export function ReviewPage({ gameId, ply }: { gameId?: string; ply?: string }) {
+  const plyRef = useRef(ply);
+  plyRef.current = ply;
   const { prefs, updatePrefs, toast } = useApp();
   const [game, setGame] = useState<GameRecord | null | undefined>(undefined);
   const [tree, setTree] = useState<GameTree | null>(null);
@@ -58,16 +65,37 @@ export function ReviewPage({ gameId }: { gameId?: string }) {
       setGame(g ?? null);
       if (!g) return;
       setTree(g.tree);
-      setCur(g.tree.rootId);
-      if (g.headers.Black === 'You') setOrientation('black');
+      const target = plyRef.current !== undefined ? mainline(g.tree)[Number(plyRef.current)] : undefined;
+      setCur(target ?? g.tree.rootId);
+      if (playerColorOf(g, prefs.playerNames) === 'b') setOrientation('black');
       const r = await get('reviews', gameId);
       if (!alive) return;
       if (r) setReview(r);
-      if (!r || r.status !== 'complete' || r.deepDepth < prefs.deepDepth) startReview(g, r ?? null);
+      if (needsReReview(r, prefs.deepDepth)) startReview(g, r && (r.version ?? 1) >= REVIEW_VERSION ? r : null);
     })();
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameId]);
+
+  // a deep link to a ply of the same game (e.g. from the Opening Explorer)
+  useEffect(() => {
+    if (ply === undefined || !tree) return;
+    const id = mainline(tree)[Number(ply)];
+    if (id) setCur(id);
+  }, [ply]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [allGames, setAllGames] = useState<GameRecord[] | null>(null);
+  useEffect(() => { listGames().then(setAllGames).catch(() => setAllGames([])); }, [gameId]);
+  const setSide = async (v: string) => {
+    if (!game) return;
+    const playerColor = v === '' ? undefined : v === 'none' ? null : (v as 'w' | 'b');
+    const fresh = (await get('games', game.id)) ?? game;
+    const next = { ...fresh, playerColor };
+    if (playerColor === undefined) delete next.playerColor;
+    await saveGame(next);
+    setGame(next);
+    setAllGames((gs) => gs?.map((x) => (x.id === next.id ? next : x)) ?? null);
+    toast(playerColor ? `Marked as your game with ${playerColor === 'w' ? 'White' : 'Black'}.` : playerColor === null ? 'Marked as someone else’s game.' : 'Side cleared.');
+  };
 
   const unsub = useRef<(() => void) | null>(null);
   const startReview = useCallback((g: GameRecord, prev: GameReview | null) => {
@@ -91,6 +119,8 @@ export function ReviewPage({ gameId }: { gameId?: string }) {
   const onMain = !!node && mainSet.has(node.id);
   const mr: MoveReview | undefined = node ? byNode.get(node.id) : undefined;
   const mainIdx = line.indexOf(cur);
+  const pathIds = useMemo(() => (tree && cur ? pathTo(tree, cur) : []), [tree, cur]);
+  const openingTrack = useMemo(() => (tree ? trackOpening(pathIds.map((id) => tree.nodes[id].fen)) : null), [tree, pathIds]);
   const keyMoments = useMemo(() => {
     const idx = new Set<number>();
     (review?.moves ?? []).forEach((m, i) => { if (m && KEY_CLASSES.includes(m.cls)) idx.add(i + 1); });
@@ -177,6 +207,13 @@ export function ReviewPage({ gameId }: { gameId?: string }) {
       return true;
     } catch { return false; }
   };
+  const addTheory = (uci: string) => {
+    try {
+      const r = addMove(tree, node.id, { from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] }, 'theory');
+      if (!r.existed) commitTree(r.tree);
+      go(r.nodeId);
+    } catch { /* not legal here */ }
+  };
   const playLine = (fen: string, pv: string[], plies: number) => {
     // the line starts at `fen`: the current node or (for "best was…") its parent
     const startId = fen === node.fen ? node.id : node.parentId ?? node.id;
@@ -257,6 +294,14 @@ export function ReviewPage({ gameId }: { gameId?: string }) {
           )}
           {review?.status === 'complete' && <span className="small faint" data-testid="review-complete">Analysed to depth {review.deepDepth}</span>}
           {review && (review.status === 'cancelled' || review.status === 'error') && <button type="button" className="btn btn-sm" onClick={() => startReview(game, review)}>Resume analysis</button>}
+          {(game.source === 'pgn' || game.source === 'manual') && (
+            <select className="input input-sm" value={game.playerColor === undefined ? (playerColorOf(game, prefs.playerNames) ?? '') : game.playerColor === null ? 'none' : game.playerColor} onChange={(e) => void setSide(e.target.value)} aria-label="Your side in this game" title="Your side in this game (used for your opening statistics)" data-testid="game-side">
+              <option value="">Your side: not set</option>
+              <option value="w">You played White</option>
+              <option value="b">You played Black</option>
+              <option value="none">Not your game</option>
+            </select>
+          )}
           <button type="button" className="btn btn-sm btn-quiet" onClick={async () => downloadText(`${gameTitle(game).replace(/\W+/g, '_')}.pgn`, await gamePgn({ ...game, tree }), 'application/x-chess-pgn')} data-testid="export-pgn"><IconDownload size={16} /> Export PGN</button>
         </div>
       </header>
@@ -303,9 +348,18 @@ export function ReviewPage({ gameId }: { gameId?: string }) {
 
             {tab === 'review' && (
               <>
+                {allowed(mode, 'openingInfo') && openingTrack && (() => {
+                  const op = openingTrack.plies[openingTrack.plies.length - 1];
+                  const ucisToHere = pathIds.slice(1).map((id) => tree.nodes[id].uci!);
+                  const lb = op.lastBookIndex;
+                  const lbNode = lb >= 0 && lb < pathIds.length - 1 ? tree.nodes[pathIds[lb + 1]] : null;
+                  const leftWith = !op.inBook && lbNode?.san ? `${Math.ceil(lbNode.ply / 2)}${lbNode.ply % 2 ? '.' : '…'}${lbNode.san}` : null;
+                  const mine = allGames ? gamesAtPosition(allGames, node.fen, prefs.playerNames, { source: 'competitive', color: 'both' }).games.length + gamesAtPosition(allGames, node.fen, prefs.playerNames, { source: 'coach', color: 'both' }).games.length : null;
+                  return <OpeningStrip ply={op} ucis={ucisToHere} leftWith={leftWith} mine={mine} isMove={!!node.parentId} />;
+                })()}
                 <MoveStrip moves={moveItems} current={onMain ? mainIdx : -1} onSelect={(n) => go(line[n])} showIcons={allowed(mode, 'classifications')} />
                 <div className="panel-card-scroll">
-                  <MoveCard node={node} parentFen={node.parentId ? tree.nodes[node.parentId].fen : undefined} mr={mr} live={live} opening={review?.opening}
+                  <MoveCard node={node} parentFen={node.parentId ? tree.nodes[node.parentId].fen : undefined} mr={mr} live={live} opening={null}
                     showClass={allowed(mode, 'classifications')} showEngine={allowed(mode, 'engineLines')} onPlayLine={playLine} />
                 </div>
                 {allowed(mode, 'evalGraph') && review && <div className="panel-graph hide-mobile"><EvalGraph scores={scores} current={onMain ? mainIdx : -1} onSelect={(i) => go(line[i])} marks={line.slice(1).map((id) => byNode.get(id)?.cls)} height={46} /></div>}
@@ -317,7 +371,8 @@ export function ReviewPage({ gameId }: { gameId?: string }) {
                 {!onMain && <MoveCard node={node} live={live} showClass={false} showEngine={allowed(mode, 'engineLines')} onPlayLine={playLine} explore />}
                 <ExplorePanel tree={tree} cur={cur} onSelect={go} classOf={classOf} evalOf={evalOf} onChangeTree={commitTree}
                   onDelete={(id) => setDeleteAsk(id)} branchId={bStart} busy={busy} canEngine={!new Chess(node.fen).isGameOver()}
-                  onEngineMove={engineMove} onEngineContinue={(n) => void engineContinue(n)} />
+                  onEngineMove={engineMove} onEngineContinue={(n) => void engineContinue(n)}
+                  showTheory={allowed(mode, 'openingInfo')} onTheory={addTheory} />
               </div>
             )}
             {tab === 'summary' && (

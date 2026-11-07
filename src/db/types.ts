@@ -23,6 +23,12 @@ export interface GameRecord {
   /** linked records */
   coachSessionId?: string;
   rankedMatchId?: string;
+  /**
+   * The side the user played. Known for Coach and Ranked games; for imported
+   * and reconstructed games it is set by the user (or matched from the PGN
+   * player names in Settings). `null` = the user did not play in this game.
+   */
+  playerColor?: 'w' | 'b' | null;
 }
 
 export interface ReconstructionDraft {
@@ -33,6 +39,8 @@ export interface ReconstructionDraft {
   orientation: 'white' | 'black';
   headers: Record<string, string>;
   startFen: string;
+  /** the side the user played, if they say so */
+  playerColor?: 'w' | 'b' | null;
   updatedAt: number;
 }
 
@@ -55,8 +63,12 @@ export interface CoachAttempt {
   tookBack: boolean;
   /** the attempt became the move actually played */
   final: boolean;
-  /** first attempt with no hints = independent evidence */
+  /** first attempt at this position in the session, made without hints = independent evidence */
   independent: boolean;
+  /** the move was committed and later undone with Take back */
+  rewound?: boolean;
+  /** the player looked at a demonstration (Show Why / Best Move) of this attempt */
+  sawDemo?: boolean;
   ts: number;
 }
 
@@ -102,6 +114,8 @@ export interface CoachSession {
   reason?: EndReason;
   seed: number;
   gameId?: string;
+  /** the Coach-level adaptation for this game has been applied (only once, even if the game is reopened) */
+  profileApplied?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -169,6 +183,44 @@ export interface Preferences {
   showBestArrow: boolean;
   /** last-used Game Review panel tab */
   reviewTab: 'review' | 'explore' | 'summary';
+  /** names the user plays under in PGN files (to know their side in imported games) */
+  playerNames: string[];
+}
+
+/** A saved opening line of the user's repertoire (SAN from the standard start position). */
+export interface RepertoireLine {
+  id: string;
+  name: string;
+  /** the side the user plays in this line */
+  color: 'w' | 'b';
+  moves: string[];
+  note?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * Practice record for one decision of the repertoire: a position (by key)
+ * where the user is to move, for one colour. Kept apart from all game
+ * statistics.
+ */
+export interface DrillRecord {
+  /** `${color}|${positionKey}` */
+  id: string;
+  color: 'w' | 'b';
+  fen: string;
+  /** repertoire moves (UCI) accepted in this position */
+  expected: string[];
+  attempts: number;
+  /** answered correctly at the first try */
+  firstTry: number;
+  misses: number;
+  /** consecutive first-try successes */
+  streak: number;
+  lastPracticed: number;
+  lastMissed?: number;
+  /** the wrong moves played here, most recent first (UCI) */
+  wrong: string[];
 }
 
 export const DEFAULT_PREFS: Preferences = {
@@ -183,4 +235,5 @@ export const DEFAULT_PREFS: Preferences = {
   motion: 'system',
   showBestArrow: false,
   reviewTab: 'review',
+  playerNames: [],
 };

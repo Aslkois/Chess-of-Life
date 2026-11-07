@@ -333,6 +333,7 @@ export function exportPgn(headers: Record<string, string>, tree: GameTree, resul
       if (n.branchName) parts.push(`Branch: ${n.branchName}`);
       if (n.branchNote) parts.push(n.branchNote);
       if (n.source === 'engine') parts.push('[engine continuation]');
+      if (n.source === 'theory' && n.parentId && tree.nodes[n.parentId].source !== 'theory') parts.push('[catalogued theory]');
       if (n.source === 'user' && n.parentId && tree.nodes[n.parentId].source !== 'user' && tree.nodes[n.parentId].source !== 'engine') parts.push('[explored alternative]');
       if (n.comment) parts.push(n.comment);
       const a = opts.annotate?.(nodeId);

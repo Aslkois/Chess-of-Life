@@ -1,8 +1,9 @@
 import { Chess } from 'chess.js';
 import { mainline, type GameTree } from '../chess/tree';
 import { AbortedError, type AnalysisResult, type EngineController } from '../engine/controller';
-import { winPercent, winPercentPov, type Score } from '../engine/score';
-import { gameAccuracy, classifyMove, CLASS_ORDER, type Classification, type MoveClassification } from './classify';
+import { winPercent, type Score } from '../engine/score';
+import { gameAccuracy, classifyMove, CLASS_ORDER, type Classification, type MoveClassification, type SacrificeCheck } from './classify';
+import { verifySacrifice } from './verify';
 import { explainForReview, pvToSan, uciToSan } from './explain';
 import { identifyOpening, type OpeningInfo } from './openings';
 import { gamePhase, type Phase } from './board';
@@ -63,6 +64,13 @@ export interface GameReview {
   error?: string;
 }
 
+/**
+ * Bump when classification rules change: stored reviews with an older version
+ * are re-run (cheap, because engine results are cached per position). Games,
+ * branches and profiles are never touched by this.
+ */
+export const REVIEW_VERSION = 2;
+
 export interface ReviewOptions {
   quickDepth?: number;
   deepDepth?: number;
@@ -91,13 +99,13 @@ export async function reviewGame(engine: EngineController, gameId: string, tree:
   const ucis = nodes.slice(1).map((n) => n.uci!);
   const { opening, bookPlies } = identifyOpening(fens, ucis);
   const review: GameReview = {
-    gameId, version: 1, createdAt: Date.now(), updatedAt: Date.now(), quickDepth, deepDepth,
+    gameId, version: REVIEW_VERSION, createdAt: Date.now(), updatedAt: Date.now(), quickDepth, deepDepth,
     status: 'running', progress: { done: 0, total: fens.length * (opts.quickOnly ? 1 : 2), pass: 'quick' },
     positions: [], moves: [], accuracy: { w: null, b: null }, counts: { w: emptyCounts(), b: emptyCounts() },
     opening, bookPlies, turningPoints: [], summary: [],
   };
   const results: (AnalysisResult | undefined)[] = new Array(fens.length);
-  const sacrificeChecks = new Map<number, number>();
+  const sacrificeChecks = new Map<number, SacrificeCheck | null>();
 
   const runPass = async (depth: number, pass: 'quick' | 'deep') => {
     review.progress.pass = pass;
@@ -132,23 +140,17 @@ export async function reviewGame(engine: EngineController, gameId: string, tree:
       isBook: m < bookPlies,
       legalMoves: new Chess(fens[m]).moves().length,
       targetDepth: deepDepth,
-      sacrificeAcceptedWin: sacrificeChecks.get(m),
+      sacrificeCheck: sacrificeChecks.get(m),
     };
     let c: MoveClassification = classifyMove(ctx);
     if (c.needsSacrificeCheck && !opts.signal?.aborted) {
-      // Tactical verification: let the opponent accept the sacrifice and re-evaluate.
-      const accept = bestAcceptance(fens[m + 1], ucis[m]);
-      if (accept) {
-        try {
-          const r = await engine.analyze({ fen: accept, depth: Math.max(targetDepth - 2, 8), multipv: 1, priority: 0, signal: opts.signal });
-          const s = r.lines[0]?.score;
-          sacrificeChecks.set(m, s ? winPercentPov(s, color) : 0);
-          c = classifyMove({ ...ctx, sacrificeAcceptedWin: sacrificeChecks.get(m) });
-        } catch (e) {
-          if (e instanceof AbortedError) throw e;
-        }
-      } else {
-        sacrificeChecks.set(m, 0);
+      // Tactical verification: the opponent's best acceptance, at the final depth.
+      try {
+        const chk = await verifySacrifice(engine, fens[m], ucis[m], c.acceptances, color, deepDepth, 0, opts.signal);
+        sacrificeChecks.set(m, chk);
+        c = classifyMove({ ...ctx, sacrificeCheck: chk });
+      } catch (e) {
+        if (e instanceof AbortedError) throw e;
       }
     }
     const node = nodes[m + 1];
@@ -209,19 +211,6 @@ export async function reviewGame(engine: EngineController, gameId: string, tree:
     emit();
   }
   return review;
-}
-
-/** Position after the opponent captures the sacrificed material with their best static capture. */
-function bestAcceptance(fenAfter: string, sacUci: string): string | null {
-  const c = new Chess(fenAfter);
-  const caps = c.moves({ verbose: true }).filter((m) => m.captured);
-  if (!caps.length) return null;
-  const onSquare = caps.filter((m) => m.to === sacUci.slice(2, 4));
-  const pool = onSquare.length ? onSquare : caps;
-  const VAL: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
-  pool.sort((a, b) => VAL[b.captured!] - VAL[a.captured!] || VAL[a.piece] - VAL[b.piece]);
-  c.move(pool[0]);
-  return c.fen();
 }
 
 export function finalize(review: GameReview) {

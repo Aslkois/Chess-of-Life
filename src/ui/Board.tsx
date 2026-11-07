@@ -29,11 +29,16 @@ export interface BoardProps {
   onMove?: (m: BoardMove) => boolean | void;
   lastMove?: [string, string] | null;
   annotation?: BoardAnnotation | null;
-  /** review-only arrows: [from, to, color] */
+  /** arrows: [from, to, color] */
   arrows?: [string, string, string][];
-  frame?: 'normal' | 'explore' | 'predict';
+  /** teaching highlights: [square, color] */
+  highlights?: [string, string][];
+  frame?: 'normal' | 'explore' | 'predict' | 'demo';
   id?: string;
 }
+
+/** Teaching colours (Game Review convention): threats red, better green, idea orange, plans blue. */
+export const TONE_COLOR = { threat: '#e5443a', better: '#62b03c', concept: '#f09b48', plan: '#4f8ef0' } as const;
 
 export const BOARD_THEMES = {
   walnut: { label: 'Walnut', light: '#e2cfa7', dark: '#a27a55' },
@@ -58,7 +63,7 @@ function squareXY(sq: string, orientation: 'white' | 'black') {
  * review it shows the played move's classification on the destination
  * square. It never shows assistance on its own; callers decide.
  */
-export function Board({ fen, orientation, size, movable, onMove, lastMove, annotation, arrows, frame = 'normal', id = 'board' }: BoardProps) {
+export function Board({ fen, orientation, size, movable, onMove, lastMove, annotation, arrows, highlights, frame = 'normal', id = 'board' }: BoardProps) {
   const { prefs } = useApp();
   const [selected, setSelected] = useState<string | null>(null);
   const [promo, setPromo] = useState<{ from: string; to: string } | null>(null);
@@ -100,6 +105,9 @@ export function Board({ fen, orientation, size, movable, onMove, lastMove, annot
   } else if (lastMove) {
     for (const s of lastMove) styles[s] = { backgroundColor: 'rgba(255, 233, 120, 0.42)' };
   }
+  for (const [sq, color] of highlights ?? []) {
+    styles[sq] = { ...styles[sq], backgroundColor: `${color}55`, boxShadow: `inset 0 0 0 4px ${color}` };
+  }
   if (chess.inCheck()) {
     const k = chess.board().flat().find((p) => p && p.type === 'k' && p.color === turn);
     if (k) styles[k.square] = { ...styles[k.square], backgroundImage: 'radial-gradient(circle, rgba(232,52,44,.95) 0%, rgba(232,52,44,.5) 42%, transparent 72%)' };
@@ -139,7 +147,7 @@ export function Board({ fen, orientation, size, movable, onMove, lastMove, annot
   }
 
   return (
-    <div className={`board-frame${frame === 'explore' ? ' is-explore' : frame === 'predict' ? ' is-predict' : ''}`} style={{ width: size, height: size }} data-testid={id} data-fen={fen} data-orientation={orientation}>
+    <div className={`board-frame${frame === 'explore' ? ' is-explore' : frame === 'predict' ? ' is-predict' : frame === 'demo' ? ' is-demo' : ''}`} style={{ width: size, height: size }} data-testid={id} data-fen={fen} data-orientation={orientation}>
       <Chessboard
         id={id}
         position={fen}

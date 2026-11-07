@@ -4,11 +4,17 @@ import type { CoachAttempt, CoachMoveInfo, CoachSession } from '../db/types';
 import type { MoveClassification } from '../analysis/classify';
 import { START_FEN } from '../chess/tree';
 import { gameStatus } from '../chess/rules';
+import { positionKey } from '../chess/positionKey';
 
 /**
  * Coach game state. Pure functions: the React page and the tests drive the
  * same logic. Attempts are kept as an append-only log, so a takeback never
  * erases the evidence of the original decision.
+ *
+ * Learning integrity: a decision is *independent* only if it is the first
+ * attempt at that exact position in this session and no hint was used for it.
+ * Retrying a position (after Retry, Take back or a demonstration) is always
+ * recorded as assisted, however many times the player rewinds.
  */
 export interface CoachState {
   session: CoachSession;
@@ -19,7 +25,6 @@ export interface CoachState {
   pending: { attemptId: string; uci: string; san: string; fenAfter: string } | null;
   attempts: CoachAttempt[];
   hintsThisMove: number;
-  attemptNoThisMove: number;
 }
 
 export function startCoachSession(opts: { playerColor: 'w' | 'b'; coachLevel: number; predictionEnabled: boolean; seed?: number; startFen?: string }): CoachState {
@@ -31,7 +36,7 @@ export function startCoachSession(opts: { playerColor: 'w' | 'b'; coachLevel: nu
       moves: [], moveInfo: [], hintsUsed: 0, takebacks: 0, lastExercisePly: -100, status: 'active', result: '*',
       seed: opts.seed ?? Math.floor(Math.random() * 2 ** 31), createdAt: now, updatedAt: now,
     },
-    fens: [startFen], ucis: [], pending: null, attempts: [], hintsThisMove: 0, attemptNoThisMove: 1,
+    fens: [startFen], ucis: [], pending: null, attempts: [], hintsThisMove: 0,
   };
 }
 
@@ -45,12 +50,19 @@ export function proposeMove(s: CoachState, move: { from: string; to: string; pro
   const c = new Chess(currentFen(s));
   const mv = c.move(move); // throws on illegal moves
   const uci = mv.from + mv.to + (mv.promotion ?? '');
+  const prior = attemptsAt(s, currentFen(s)).length;
   const attempt: CoachAttempt = {
-    id: newId('at'), sessionId: s.session.id, ply: s.ucis.length, fen: currentFen(s), attemptNo: s.attemptNoThisMove, uci, san: mv.san,
+    id: newId('at'), sessionId: s.session.id, ply: s.ucis.length, fen: currentFen(s), attemptNo: prior + 1, uci, san: mv.san,
     cls: null, epl: null, provisional: true, hintsBefore: s.hintsThisMove, tookBack: false, final: false,
-    independent: s.attemptNoThisMove === 1 && s.hintsThisMove === 0, ts: Date.now(),
+    independent: prior === 0 && s.hintsThisMove === 0, ts: Date.now(),
   };
   return { state: { ...s, pending: { attemptId: attempt.id, uci, san: mv.san, fenAfter: c.fen() }, attempts: [...s.attempts, attempt] }, attempt };
+}
+
+/** Earlier attempts at the same position (transposition-safe) in this session. */
+export function attemptsAt(s: CoachState, fen: string): CoachAttempt[] {
+  const key = positionKey(fen);
+  return s.attempts.filter((a) => positionKey(a.fen) === key);
 }
 
 export function setAttemptEvaluation(s: CoachState, attemptId: string, c: Pick<MoveClassification, 'cls' | 'epl' | 'provisional'>): CoachState {
@@ -65,9 +77,52 @@ export function takeBack(s: CoachState): CoachState {
     ...s,
     pending: null,
     attempts: s.attempts.map((a) => (a.id === id ? { ...a, tookBack: true } : a)),
-    attemptNoThisMove: s.attemptNoThisMove + 1,
     session: { ...s.session, takebacks: s.session.takebacks + 1, updatedAt: Date.now() },
   };
+}
+
+/** Is there anything for Take back to undo? */
+export function canRewind(s: CoachState): boolean {
+  return !!s.pending || s.session.moveInfo.some((m) => m.by === 'player');
+}
+
+/**
+ * Take back the player's most recent move – whatever its rating, whether or
+ * not the Coach has already replied, and even after the game has ended. The
+ * Coach's reply (if any) is undone with it, so it is the player's turn again
+ * in the position before their move. Repeat to rewind further. The attempt
+ * log keeps every undone move (marked `rewound`).
+ */
+export function rewind(s: CoachState): CoachState {
+  if (s.pending) return takeBack(s);
+  let i = s.session.moveInfo.length - 1;
+  while (i >= 0 && s.session.moveInfo[i].by !== 'player') i--;
+  if (i < 0) return s;
+  const undone = s.session.moveInfo[i];
+  const keep = i; // plies kept
+  const finalAttempt = [...s.attempts].reverse().find((a) => a.final && a.ply === undone.ply && a.uci === undone.uci && !a.rewound);
+  return {
+    ...s,
+    fens: s.fens.slice(0, keep + 1),
+    ucis: s.ucis.slice(0, keep),
+    pending: null,
+    hintsThisMove: 0,
+    attempts: s.attempts.map((a) => (finalAttempt && a.id === finalAttempt.id ? { ...a, rewound: true } : a)),
+    session: {
+      ...s.session,
+      moves: s.session.moves.slice(0, keep),
+      moveInfo: s.session.moveInfo.slice(0, keep),
+      status: 'active',
+      result: '*',
+      reason: undefined,
+      takebacks: s.session.takebacks + 1,
+      updatedAt: Date.now(),
+    },
+  };
+}
+
+export function markDemoSeen(s: CoachState, attemptId: string): CoachState {
+  return { ...s, attempts: s.attempts.map((a) => (a.id === attemptId ? { ...a, sawDemo: true } : a)) };
 }
 
 function commit(s: CoachState, uci: string, info: Omit<CoachMoveInfo, 'ply' | 'san' | 'uci' | 'color'>): CoachState {
@@ -97,7 +152,6 @@ export function commitPending(s: CoachState, info: { cls: CoachMoveInfo['cls']; 
     ...next,
     attempts: next.attempts.map((a) => (a.id === p.attemptId ? { ...a, final: true } : a)),
     hintsThisMove: 0,
-    attemptNoThisMove: 1,
   };
 }
 
@@ -127,7 +181,7 @@ export function sessionStats(s: CoachState) {
   return {
     decisions: firsts.length,
     independentDecisions: independent.length,
-    takebacks: s.attempts.filter((a) => a.tookBack).length,
+    takebacks: s.attempts.filter((a) => a.tookBack || a.rewound).length,
     hints: s.session.hintsUsed,
     independentEpl: mean(independent.map((a) => a.epl!)),
     finalEpl: mean(s.attempts.filter((a) => a.final && a.epl !== null).map((a) => a.epl!)),
@@ -144,10 +198,8 @@ export function restoreCoachState(session: CoachSession, attempts: CoachAttempt[
     ucis.push(m.from + m.to + (m.promotion ?? ''));
     fens.push(c.fen());
   }
-  const ply = ucis.length;
-  const here = attempts.filter((a) => a.ply === ply && !a.final);
   return {
     session, fens, ucis, pending: null, attempts: attempts.sort((a, b) => a.ts - b.ts),
-    hintsThisMove: 0, attemptNoThisMove: here.length + 1,
+    hintsThisMove: 0,
   };
 }

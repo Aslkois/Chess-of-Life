@@ -17,8 +17,9 @@ your browser. No account, no server, no subscription, no limits on reviews.
 |---|---|
 | **Game Review** | Enter a game by **reconstructing it move by move** on the board (both sides, legal moves only, undo/redo, autosave) or **import PGN** (paste or file, many games per file, headers/clocks/comments/NAGs/variations preserved, clear error reporting). Both produce the same game record. Review shows accuracy for both players, the ten move classifications (Brilliant, Great, Best, Excellent, Good, Book, Inaccuracy, Mistake, Miss, Blunder), evaluation bar and graph, winning-chance changes, centipawn loss, best lines, verified tactical explanations, turning points, opening name and a written summary. Results are provisional after a quick pass and refined by a deep pass. |
 | **Tree of Life** | Play any move from any position to branch; branches nest without limit. Stockfish can play a move, a line or 6 moves of continuation. Branches can be named, annotated, compared with the original game (evaluation, winning chances, material, verified consequences) and deleted. The original game is immutable. Outline view + branch map; transpositions share cached evaluations. PGN export with nested variations. |
-| **Coach** | A real game against an opponent whose goal is your improvement. Every move — yours and the Coach's — is rated live (provisional, then refined). Mistakes, misses and blunders trigger a conceptual explanation with **Take Back** or **Continue** (your choice). Up to three progressive hints per move that point to *what to look at*, never the move. Selective **Predict the Opponent** exercises at moments with real teaching value. A persistent learning profile separates independent decisions from assisted ones and reports confidence honestly. |
+| **Coach** | A real game against an opponent whose goal is your improvement. Every move — yours and the Coach's — is rated live (provisional, then refined). Mistakes, misses and blunders get a concrete explanation (which piece, which square, the punishing reply) with **Show Why**, **Best Move** and **Compare** demonstrations on request, then **Retry** or **Continue**. **Take back** any move, as often as you like — after the Coach's reply or even after the game has ended. Unlimited hints that point to *what to look at*, never the move. Selective **Predict the Opponent** exercises at moments with real teaching value. A persistent learning profile separates independent decisions from assisted ones and reports confidence honestly. |
 | **Ranked Rival** | Competitive games with clocks (3+2 … 30+20 or untimed), resignation, draw offers, threefold / 50-move claims, automatic fivefold / 75-move / dead-position draws and FIDE time-forfeit rules. **No assistance of any kind** while the game is running — and every other part of the app is locked. The Rival plays at a fixed, calibrated level, learns only from completed Ranked games, and steers toward your demonstrated weaknesses with sound moves. Internal Glicko-2 rating, match history, adaptation log. Analysis unlocks after the game. |
+| **Openings** | An **Opening Explorer** built on the free Lichess opening list (CC0): family, variation and sub-variation with ECO code, book status per position, transpositions recognised, the last known opening kept after leaving theory, catalogued continuations with the number of dataset lines through each, **My Games** statistics from your own games (with the games behind every number), the engine only when you ask, and an honest "not included" for master games. Personal opening statistics in Progress (family → variation → sub-variation, W/D/L, score, opening accuracy, where theory was left, over time, filters), opening identity and book status per move in Game Review, post-move opening notes in the Coach, theory branches in the Tree of Life, and a **repertoire** with practice against a training opponent (unlimited retries, forgotten-move tracking, PGN import/export), kept apart from all game statistics. Locked during Ranked play like everything else. |
 | **Data** | IndexedDB with versioned migrations: games, drafts, reviews, engine cache, branches, Coach sessions / attempts / predictions, learning profile, Ranked matches, Rival model and adaptations, preferences. Export / import a JSON backup; delete everything. Works offline after the first visit (PWA). |
 
 ## Interface
@@ -83,7 +84,7 @@ service worker makes it available offline after the first visit.
 npm test
 ```
 
-75 unit/integration tests (Vitest). Highlights: complete legal games, castling /
+165 unit/integration tests (Vitest). Highlights: complete legal games, castling /
 en passant / promotion, stalemate, insufficient material, threefold vs fivefold
 and 50 vs 75-move rules, time forfeit vs insufficient material, clocks; PGN
 import (multi-game, comments, NAGs, clocks, variations, errors, `0-0`, FEN
@@ -95,12 +96,27 @@ rejection, queue cancellation, pre-emption, crash restart, terminal positions;
 full two-pass game review, Rival move legality and model learning;
 classification rules for every class incl. Miss, Great, Brilliant
 verification, Book; IndexedDB persistence across reconnects, backups;
-Coach takeback history (original mistake kept, retries marked assisted),
-independent vs assisted evidence, hints never revealing the move, prediction
+Coach takebacks (any move, repeatedly, after the Coach's reply and after the
+game ends; original decisions kept, retries marked assisted, transpositions
+recognised), specific post-move explanations that never invent a tactic
+(hanging pieces, mates, positional costs, honest "no tactic" lines), Show Why /
+Best Move / Compare lines, independent vs assisted evidence, unlimited hints
+that never reveal the move, prediction
 selection / cooldown / mastery, fair grading; Ranked assistance policy,
 Glicko-2, Rival learning only from Ranked data (Coach data present in the DB is
 ignored), decided positions ignored as evidence, deterministic strategy,
-strategy never widening the quality tolerance.
+strategy never widening the quality tolerance; openings validated against the
+dataset itself (every one of the 3,865 lines named at its final position, book
+status along every line; Sicilian, Najdorf, Scandinavian, Italian, Giuoco
+Piano, Queen's Gambit, QGA, QGD, King's Indian incl. Orthodox), name hierarchy,
+no premature variation names, transpositions (King's Indian via the English,
+QGD via 1.Nf3), leaving and re-entering theory, continuation line counts; My
+Games and personal statistics counting each game once, only with an
+established side, Coach games apart, colour and source filters, early errors
+and opening accuracy from reviews; repertoire merging, conflicts, practice with
+unlimited retries, opponent deviations, forgotten-move tracking; the database
+upgrade keeping existing games, backups including the repertoire, repertoire
+PGN round trip; theory branches; no opening aids during Ranked.
 
 End-to-end check in a real browser (requires Playwright with Chromium):
 
@@ -108,7 +124,7 @@ End-to-end check in a real browser (requires Playwright with Chromium):
 npm run build && npm run e2e
 ```
 
-It drives the production build through 17 checks: the Game Review chooser
+It drives the production build through 20 checks: the Game Review chooser
 (initial focus, arrow keys, Tab containment, Escape, focus return);
 reconstruction with board and typed moves, undo/redo and reload; a full review
 where the board stamp, the move panel and the explanation agree; board flipping
@@ -116,7 +132,14 @@ with the stamp staying on its square; rapid replay; move-list auto-scroll on a
 longer game; branching (nested branch, engine continuation, naming,
 comparison, back to game); persistence and PGN export with variations;
 under-promotion through the picker; multi-game PGN import with an illegal
-move; a Coach game with hint, feedback, takeback and rated moves; Ranked with
+move; a Coach game with six hints, feedback, Show Why / Best Move / Compare
+leaving the game untouched, Retry, and takebacks after the Coach's reply
+(button and keyboard); the Opening Explorer (no premature names, Najdorf B90,
+leaving theory with the last known name kept, honest masters state, engine
+only on request), saving a repertoire line and practising it (wrong moves
+rejected and not played, Show me, the opponent replying), Review opening
+strip at a deep-linked move with the side set, and the Progress openings
+tree; Ranked with
 every assistive element absent, the app locked, resume after reload,
 resignation and rating change; reduced motion; offline use; layouts at 1280,
 1024, 820 and 390 px without overflow and with replay controls on screen; and
@@ -172,7 +195,11 @@ Key decisions:
   includes the engine, the GPL's obligations (licence notice, corresponding
   source) apply to the engine.
 * Opening reference: lichess-org/chess-openings, CC0 (`data/openings/`), built
-  into `src/data/openings.json` by `npm run openings`.
+  into `src/data/openings.json` by `npm run openings`. Line counts in the
+  Explorer are counts of lines in this list, not of games. No master-game
+  database is bundled: none is available under terms that allow
+  redistribution in a free offline app, so the Explorer says so instead of
+  showing numbers.
 * Piece images: "Cburnett" set (CC BY-SA 3.0) bundled by react-chessboard (MIT).
 * Typeface: Bricolage Grotesque (SIL Open Font License), bundled via @fontsource.
 
@@ -199,5 +226,11 @@ Key decisions:
   any legal sequence" (lone king, or lone minor piece vs bare king).
 * Clocks keep running if you leave a Ranked game (by design); the Rival's
   thinking time counts against its own clock.
+* Opening names come only from the catalogued list: positions it does not
+  name keep the last name reached on the path, and a game that re-enters
+  theory at an unnamed position keeps its earlier name. There are no master
+  statistics (see Licences).
+* Imported and reconstructed games count in opening statistics only once your
+  side is known (set it in the review, or list your PGN names in Settings).
 * There is no on-device language model; an optional local LLM layer could be
   added on top of the verified facts in the future.

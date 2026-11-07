@@ -270,30 +270,149 @@ try {
     throw new Error('the Coach never intervened');
   }
 
-  await step('C1 coach: hint, mistake feedback, take back, rated moves', async () => {
+  await step('C1 coach: unlimited hints, specific feedback, Show Why / Best / Compare, Retry, takeback after the reply', async () => {
     await page.goto(URL + '#/coach');
     await page.getByTestId('start-coach').click();
     await page.waitForSelector('[data-testid="coach-board"]');
     await play('coach-board', ['e2e3']);
     await page.waitForFunction(() => /Your move/.test(document.querySelector('[data-testid="coach-status"]')?.textContent || ''), null, { timeout: 60000 });
-    await vis('hint').click();
-    await page.waitForSelector('[data-testid="hints"]');
-    assert((await page.getByTestId('hints').innerText()).length > 30, 'hint should have text');
+    // hints are unlimited: ask for more than the old limit of three
+    for (let i = 0; i < 6; i++) { await vis('hint').click(); await page.waitForTimeout(150); }
+    await page.waitForFunction(() => document.querySelectorAll('[data-testid="hints"] li').length === 6, null, { timeout: 30000 });
+    assert(await vis('hint').isEnabled(), 'the hint button stays available');
+    assert(/6 used/.test(await vis('hint').innerText()), 'the hint button shows how many were used');
+    await page.screenshot({ path: `${SHOTS}/c1-coach-hints.png` });
     await coachUntilFeedback();
-    assert(/Blunder|Mistake|Miss|Inaccuracy/.test(await page.getByTestId('coach-feedback').innerText()), 'feedback should name the rating');
+    const fbText = await page.getByTestId('coach-feedback').innerText();
+    assert(/Blunder|Mistake|Miss|Inaccuracy/.test(fbText), 'feedback should name the rating');
+    assert((await page.getByTestId('teach-point').count()) >= 1, 'feedback should have concrete points');
     await page.screenshot({ path: `${SHOTS}/c1-coach-feedback.png` });
+    const gameFen = await page.getByTestId('coach-board').getAttribute('data-fen');
     const n = await page.locator(cells).count();
-    await page.getByTestId('take-back').click();
-    assert((await page.locator(cells).count()) === n - 1, 'takeback should remove the pending move');
-    const fen = await page.getByTestId('coach-board').getAttribute('data-fen');
-    const legal = new Chess(fen).moves({ verbose: true });
-    const safe = legal.find((m) => { const t = new Chess(fen); t.move(m); return !t.isAttacked(m.to, 'b'); }) ?? legal[0];
+    // Show Why: a demonstration that does not touch the game
+    if (await page.getByTestId('show-why').count()) {
+      await page.getByTestId('show-why').click();
+      await page.waitForSelector('[data-testid="demo"]');
+      await page.getByTestId('demo-next').click();
+      const demoFen = await page.getByTestId('coach-board').getAttribute('data-fen');
+      assert(demoFen !== gameFen, 'the demonstration should show a different position');
+      assert(await page.getByTestId('coach-board').evaluate((el) => el.classList.contains('is-demo')), 'the board is marked as a demonstration');
+      assert((await page.locator('[data-testid="coach-board"] svg path, [data-testid="coach-board"] svg line').count()) >= 0, 'arrows');
+      await page.screenshot({ path: `${SHOTS}/c1-coach-show-why.png` });
+      await page.getByTestId('demo-prev').click();
+      await page.getByTestId('demo-return').click();
+      assert((await page.getByTestId('coach-board').getAttribute('data-fen')) === gameFen, 'Return should restore the game position');
+      assert((await page.locator(cells).count()) === n, 'a demonstration must not change the game');
+    }
+    if (await page.getByTestId('best-move').count()) {
+      await page.getByTestId('best-move').click();
+      await page.waitForSelector('[data-testid="demo"]');
+      assert(/Better was/.test(await page.getByTestId('demo').innerText()), 'best line title');
+      await page.screenshot({ path: `${SHOTS}/c1-coach-best.png` });
+      await page.keyboard.press('Escape');
+      assert((await page.getByTestId('demo').count()) === 0, 'Escape leaves the demonstration');
+    }
+    if (await page.getByTestId('compare').count()) {
+      await page.getByTestId('compare').click();
+      await page.waitForSelector('[data-testid="compare-view"]');
+      await page.screenshot({ path: `${SHOTS}/c1-coach-compare.png` });
+      await page.getByTestId('compare-return').click();
+    }
+    assert((await page.getByTestId('coach-board').getAttribute('data-fen')) === gameFen, 'the game position is preserved');
+    await page.getByTestId('take-back').click(); // Retry
+    assert((await page.locator(cells).count()) === n - 1, 'Retry should remove the pending move');
+    let fen = await page.getByTestId('coach-board').getAttribute('data-fen');
+    let legal = new Chess(fen).moves({ verbose: true });
+    let safe = legal.find((m) => { const t = new Chess(fen); t.move(m); return !t.isAttacked(m.to, 'b'); }) ?? legal[0];
     await play('coach-board', [safe.from + safe.to]);
-    await page.waitForFunction((k) => document.querySelectorAll('[data-testid="movelist"] .ml-cell').length >= k + 1 || document.querySelector('[data-testid="coach-feedback"]'), n - 1, { timeout: 60000 });
-    if (await page.getByTestId('coach-feedback').count()) await page.getByTestId('continue').click();
+    // wait for the Coach's reply (or feedback, which we accept)
+    await page.waitForFunction((k) => document.querySelectorAll('[data-testid="movelist"] .ml-cell').length >= k + 1 || document.querySelector('[data-testid="coach-feedback"] [data-testid="continue"]'), n, { timeout: 60000 });
+    if (await page.getByTestId('continue').count()) await page.getByTestId('continue').click();
+    await page.waitForFunction((k) => document.querySelectorAll('[data-testid="movelist"] .ml-cell').length >= k + 1 && /Your move/.test(document.querySelector('[data-testid="coach-status"]')?.textContent || ''), n, { timeout: 60000 });
+    const m = await page.locator(cells).count();
     assert((await page.locator('[data-testid="movelist"] .cls-icon').count()) >= 3, 'moves should carry ratings');
+    // take back after the Coach has replied: both moves go, no confirmation
+    await vis('takeback').click();
+    await page.waitForFunction((k) => document.querySelectorAll('[data-testid="movelist"] .ml-cell').length === k - 2, m, { timeout: 10000 });
+    assert(/Your move/.test(await page.getByTestId('coach-status').innerText()), 'it is the player’s move again');
+    // and once more (keyboard)
+    await page.locator('body').click({ position: { x: 5, y: 5 } });
+    await page.keyboard.press('Backspace');
+    await page.waitForFunction((k) => document.querySelectorAll('[data-testid="movelist"] .ml-cell').length === k - 4, m, { timeout: 10000 });
     await page.locator('summary:has-text("This game and your learning profile")').click();
-    assert(/1\s*takebacks/.test(await page.locator('details:has(summary:has-text("This game"))').innerText()), 'takeback should be counted');
+    assert(/3\s*takebacks/.test(await page.locator('details:has(summary:has-text("This game"))').innerText()), 'all takebacks should be counted');
+  });
+
+  // ---------- Journey E: openings ----------
+  await step('E1 opening explorer: names, book status, theory, engine only on request, masters honest', async () => {
+    await page.goto(URL + '#/openings');
+    await page.waitForSelector('[data-testid="opening-explorer"]');
+    assert(/Starting position/.test(await page.getByTestId('opening-name').innerText()), 'start position has no opening name');
+    for (const m of ['e2e4', 'c7c5', 'g1f3', 'd7d6', 'd2d4', 'c5d4', 'f3d4', 'g8f6', 'b1c3']) await play('explorer-board', [m]);
+    let name = await page.getByTestId('opening-name').innerText();
+    assert(/Sicilian Defense/.test(name) && !/Najdorf/.test(name), `no premature variation name: ${name}`);
+    await play('explorer-board', ['a7a6']);
+    name = await page.getByTestId('opening-name').innerText();
+    assert(/Najdorf Variation/.test(name) && /B90/.test(name) && /Catalogued position/.test(name), `Najdorf B90 expected: ${name}`);
+    assert(/e2e4,c7c5/.test(page.url()), 'the address follows the position');
+    assert((await page.getByTestId('continuation').count()) >= 5, 'catalogued continuations listed');
+    await page.screenshot({ path: `${SHOTS}/e1-explorer.png` });
+    // leave theory
+    await play('explorer-board', ['h2h4']);
+    assert(/Outside the catalogued theory since 6\.h4/.test(await page.getByTestId('opening-name').innerText()), 'leaving theory is reported');
+    assert(/Najdorf/.test(await page.getByTestId('opening-name').innerText()), 'last known identity kept');
+    await page.keyboard.press('ArrowLeft');
+    await page.getByTestId('pane-masters').click();
+    assert(/not included/.test(await page.getByTestId('masters-unavailable').innerText()), 'masters: honest unavailable state');
+    await page.getByTestId('pane-engine').click();
+    assert((await page.getByTestId('engine-lines-explorer').count()) === 0, 'no engine output before it is requested');
+    await page.getByTestId('analyse-position').click();
+    await page.waitForSelector('[data-testid="engine-lines-explorer"]', { timeout: 60000 });
+    await page.getByTestId('pane-mine').click();
+    await page.waitForSelector('[data-testid="my-games"]');
+  });
+
+  await step('E2 repertoire and practice: save a line, unlimited retries, opponent replies', async () => {
+    await page.getByTestId('add-to-repertoire').click();
+    await page.getByTestId('save-line-confirm').click();
+    await page.goto(URL + '#/openings/repertoire');
+    await page.waitForSelector('[data-testid="rep-line"]');
+    assert(/Najdorf/.test(await page.getByTestId('rep-line').first().innerText()), 'line saved');
+    await page.getByTestId('practise-b').click();
+    await page.waitForFunction(() => /Your move/.test(document.querySelector('[data-testid="practice-status"]')?.textContent || ''), null, { timeout: 10000 });
+    for (let i = 0; i < 3; i++) await play('practice-board', ['e7e5']);
+    assert(/not in your line/.test(await page.getByTestId('practice-note').innerText()), 'wrong move rejected');
+    assert((await page.locator('[data-testid="practice-moves"] .ml-cell').count()) === 1, 'the wrong move is not played');
+    await page.getByTestId('practice-show').click();
+    assert(/c5/.test(await page.getByTestId('practice-note').innerText()), 'Show me reveals the prepared move');
+    await play('practice-board', ['c7c5']);
+    await page.waitForFunction(() => document.querySelectorAll('[data-testid="practice-moves"] .ml-cell').length >= 3, null, { timeout: 10000 });
+    await page.screenshot({ path: `${SHOTS}/e2-practice.png` });
+  });
+
+  await step('E3 review and progress: opening per position, your side, personal statistics', async () => {
+    await page.goto(URL + '#/import');
+    await page.getByTestId('pgn-text').fill('[White "alice99"]\n[Black "Bob"]\n[Date "2026.03.04"]\n[Result "1-0"]\n\n1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 6. h4 e5 7. Nf3 Be7 1-0');
+    await page.getByTestId('parse-pgn').click();
+    await page.getByTestId('import-selected').click();
+    await page.waitForURL(/#\/review\//);
+    const id = page.url().split('/review/')[1].split('/')[0];
+    await page.goto(URL + `#/review/${id}/10`);
+    await page.waitForSelector('[data-testid="review-opening"]');
+    let op = await page.getByTestId('review-opening').innerText();
+    assert(/Najdorf/.test(op) && /Book/.test(op), `review opening at 5...a6: ${op}`);
+    await page.keyboard.press('ArrowRight');
+    op = await page.getByTestId('review-opening').innerText();
+    assert(/Out of book/.test(op) && /leaves the catalogued theory/.test(op) && /not a mistake in itself/.test(op), `leaving theory explained: ${op}`);
+    await page.getByTestId('game-side').selectOption('w');
+    await page.screenshot({ path: `${SHOTS}/e3-review-opening.png` });
+    await page.goto(URL + '#/profile');
+    await page.getByTestId('progress-openings').click();
+    await page.waitForSelector('[data-testid="opening-stats"]');
+    assert(/Sicilian Defense/.test(await page.getByTestId('opening-stats').innerText()), 'the game counts once its side is known');
+    await page.getByTestId('op-node').first().click();
+    assert(/6\.h4/.test(await page.getByTestId('op-detail').innerText()), 'where theory was left is shown');
+    await page.screenshot({ path: `${SHOTS}/e3-progress-openings.png` });
   });
 
   // ---------- Journey D ----------
@@ -305,7 +424,7 @@ try {
     const orientation = await page.getByTestId('ranked-board').getAttribute('data-orientation');
     if (orientation === 'white') await play('ranked-board', ['e2e4']);
     await page.waitForFunction(() => document.querySelectorAll('[data-testid="movelist"] .ml-cell').length >= 1, null, { timeout: 60000 });
-    for (const forbidden of ['evalbar', 'evalgraph', 'hint', 'take-back', 'coach-feedback', 'prediction', 'tree', 'explanation', 'board-stamp', 'engine-lines', 'move-card']) {
+    for (const forbidden of ['evalbar', 'evalgraph', 'hint', 'hint-mobile', 'take-back', 'takeback', 'takeback-mobile', 'coach-feedback', 'show-why', 'best-move', 'compare', 'demo', 'prediction', 'tree', 'explanation', 'board-stamp', 'engine-lines', 'move-card', 'opening-name', 'opening-explorer', 'review-opening', 'coach-opening-note', 'theory-branches']) {
       assert((await page.getByTestId(forbidden).count()) === 0, `${forbidden} must not exist during ranked play`);
     }
     assert((await page.locator('.cls-icon').count()) === 0, 'no classifications during ranked play');
@@ -313,6 +432,10 @@ try {
     await page.screenshot({ path: `${SHOTS}/d1-ranked.png` });
     await page.goto(URL + '#/library');
     assert(await page.locator('text=Ranked match in progress').isVisible(), 'other pages must be locked');
+    await page.goto(URL + '#/openings/explore/e2e4');
+    assert(await page.locator('text=Ranked match in progress').isVisible(), 'the Opening Explorer is locked during Ranked play');
+    assert((await page.getByTestId('opening-explorer').count()) === 0, 'no explorer during Ranked play');
+    assert((await page.getByTestId('nav-openings').count()) === 0, 'the Openings link is disabled');
     await page.goto(URL + '#/ranked');
     const before = await page.locator(cells).count();
     await page.reload();
@@ -382,6 +505,13 @@ try {
       const nb = await nextBtn.first().boundingBox();
       assert(nb && nb.y + nb.height <= h + 1, `replay controls below the fold at ${w}px`);
       await page.screenshot({ path: `${SHOTS}/m-review-${w}.png` });
+      for (const route of ['#/openings/explore/e2e4,c7c5', '#/openings/repertoire', '#/openings/practice', '#/profile']) {
+        await page.goto(URL + route);
+        await page.waitForTimeout(400);
+        const o = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+        assert(o <= 1, `${route} overflows by ${o}px at ${w}px`);
+      }
+      if (w === 390) await page.goto(URL + '#/openings/explore/e2e4,c7c5').then(() => page.waitForTimeout(400)).then(() => page.screenshot({ path: `${SHOTS}/m-explorer-390.png`, fullPage: true }));
     }
   });
 

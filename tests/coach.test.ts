@@ -2,11 +2,11 @@ import 'fake-indexeddb/auto';
 import { Chess } from 'chess.js';
 import { commitCoachMove, commitPending, isPlayerTurn, proposeMove, restoreCoachState, sessionStats, setAttemptEvaluation, startCoachSession, takeBack, recordHint } from '../src/coach/session';
 import { emptyProfile, focusAreas, isMastered, recordDecision } from '../src/coach/profile';
-import { buildHints, hintRevealsMove } from '../src/coach/hints';
+import { buildHints, hintAt, revealsMove, TECHNIQUES } from '../src/coach/hints';
 import { assessTeachingValue, gradePrediction } from '../src/coach/prediction';
 import { emptyStat, addOutcome, rating } from '../src/coach/skills';
 import { evidenceFromAttempt } from '../src/services/coach';
-import { res, after } from './helpers';
+import { res } from './helpers';
 
 const mv = (u: string) => ({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] });
 
@@ -96,25 +96,53 @@ describe('Coach hints', () => {
     { fen: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2', best: 'Nf3' },
   ];
   for (const p of POSITIONS) {
-    it(`never reveals the move (${p.best})`, () => {
-      const fa = after(p.fen, p.best);
-      void fa;
+    it(`never reveals the move, however many hints are asked for (${p.best})`, () => {
       const a = res(p.fen, [[p.best, { cp: 300 }]]);
-      const hints = buildHints(p.fen, a);
-      expect(hints.length).toBe(3);
+      const hints = buildHints(p.fen, a, { lastMove: { san: 'Nc6', from: 'b8', to: 'c6' }, ply: 10 });
+      expect(hints.length).toBeGreaterThanOrEqual(2);
+      expect(new Set(hints.map((h) => h.id)).size).toBe(hints.length);
       const bestUci = a.bestmove!;
-      for (const h of hints) expect(hintRevealsMove(h.text, bestUci, p.best)).toBe(false);
-      expect(hints.map((h) => h.level)).toEqual([1, 2, 3]);
+      const pieceT = new Chess(p.fen).move(p.best).piece;
+      for (let n = 0; n < hints.length + TECHNIQUES.length + 12; n++) {
+        const h = hintAt(hints, n);
+        expect(h.text.length).toBeGreaterThan(10);
+        expect(revealsMove(h.text, bestUci, p.best, pieceT)).toBe(false);
+      }
     });
   }
 
+  it('is unlimited: position hints, then techniques, then a review of earlier hints', () => {
+    const fen = POSITIONS[0].fen;
+    const hints = buildHints(fen, res(fen, [['Nc7+', { cp: 500 }]]));
+    const kinds = Array.from({ length: hints.length + TECHNIQUES.length + 3 }, (_, n) => hintAt(hints, n).kind);
+    expect(kinds.slice(0, hints.length).every((k) => k === 'position')).toBe(true);
+    expect(kinds.slice(hints.length, hints.length + TECHNIQUES.length).every((k) => k === 'technique')).toBe(true);
+    expect(kinds.slice(hints.length + TECHNIQUES.length).every((k) => k === 'review')).toBe(true);
+    expect(hintAt(hints, 500).text).toMatch(/without giving the move away/);
+  });
+
+  it('detects the ways a hint could give the move away', () => {
+    expect(revealsMove('Look at c7.', 'b5c7', 'Nc7+')).toBe(true);
+    expect(revealsMove('Consider Nc7 here', 'b5c7', 'Nc7+')).toBe(true);
+    expect(revealsMove('The a-file is important', 'a1a8', 'Ra8#', 'r')).toBe(true);
+    expect(revealsMove('Look at the enemy king.', 'a1a8', 'Ra8#', 'r')).toBe(false);
+  });
+
   it('makes hints relevant to the position', () => {
     const fork = buildHints('r3k3/8/8/1N6/8/8/8/4K3 w q - 0 1', res('r3k3/8/8/1N6/8/8/8/4K3 w q - 0 1', [['Nc7+', { cp: 500 }]]));
-    expect(fork[1].text).toMatch(/knight/);
-    expect(fork[2].text).toMatch(/two important targets/);
+    expect(fork.find((h) => h.id === 'piece')!.text).toMatch(/knight/);
+    expect(fork.find((h) => h.id === 'idea')!.text).toMatch(/two important targets/);
     const threatened = 'rnb1kbnr/pppp1ppp/8/4p1q1/3P4/2N5/PPP1PPPP/R1BQKBNR w KQkq - 0 1';
     const t = buildHints(threatened, res(threatened, [['Bxg5', { cp: 900 }]]));
     expect(t[0].text).toMatch(/forcing moves|attacking/);
+    const withLast = buildHints(threatened, res(threatened, [['Bxg5', { cp: 900 }]]), { lastMove: { san: 'Qg5', from: 'd8', to: 'g5' } });
+    expect(withLast.find((h) => h.id === 'last-move')?.text).toMatch(/Qg5/);
+  });
+
+  it('counts checks and captures correctly', () => {
+    const fen = '6k1/5ppp/8/8/8/8/8/R5K1 w - - 0 1';
+    const h = buildHints(fen, res(fen, [['Ra8#', { mate: 1 }]])).find((x) => x.id === 'counts')!;
+    expect(h.text).toMatch(/You have 1 check and 0 captures/);
   });
 });
 

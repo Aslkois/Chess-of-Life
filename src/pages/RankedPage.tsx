@@ -154,6 +154,7 @@ export function RankedPage() {
       Result: match.result, TimeControl: match.timeControl.initial ? `${match.timeControl.initial}+${match.timeControl.increment}` : '-', Termination: match.reason ? REASON_TEXT[match.reason] : '',
     }, match.result, match.startFen);
     g.rankedMatchId = match.id;
+    g.playerColor = match.playerColor;
     // clocks into the tree for the PGN
     let id = g.tree.rootId;
     match.clockAfter.forEach((c) => { const child = g.tree.nodes[id].children[0]; if (!child) return; if (c >= 0) g.tree.nodes[child] = { ...g.tree.nodes[child], clock: c / 1000 }; id = child; });
