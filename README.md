@@ -49,6 +49,24 @@ opened from a local server) — there is no backend. After the first visit the
 service worker caches the app and the 7 MB engine, so it keeps working
 offline.
 
+## Deployment (GitHub Pages)
+
+`.github/workflows/deploy.yml` runs on every push:
+
+1. **Unit tests and production build** – `npm ci`, `npm test`, `npm run build`, then
+   uploads `dist/` as the Pages artifact.
+2. **End-to-end workflows** – installs Playwright + Chromium and runs
+   `npm run e2e` against the production build (screenshots are kept as a
+   workflow artifact).
+3. **Deploy** – only for pushes to `main`, and only when both jobs pass:
+   publishes the build with `actions/deploy-pages`.
+
+One-time repository setting: **Settings → Pages → Build and deployment →
+Source: GitHub Actions**. The site is then served at
+`https://<owner>.github.io/<repo>/`. The build uses relative asset paths and
+hash routing, so it works under that sub-path without configuration, and the
+service worker makes it available offline after the first visit.
+
 ## Tests
 
 ```bash

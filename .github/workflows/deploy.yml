@@ -1,0 +1,91 @@
+name: Build, test and deploy
+
+# Every push runs the unit tests, the production build and the browser
+# end-to-end suite. Only pushes to main are deployed to GitHub Pages, and only
+# when both test jobs pass.
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Unit tests and production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Unit and integration tests (includes real Stockfish)
+        run: npm test
+
+      - name: Type-check and build
+        run: npm run build
+
+      - name: Upload site for GitHub Pages
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+
+  e2e:
+    name: End-to-end workflows (Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install Playwright and Chromium
+        run: |
+          npm install --no-save playwright@1.63.0
+          npx playwright install --with-deps chromium
+
+      - name: Build
+        run: npm run build
+
+      - name: Run review, branching, Coach, Ranked, offline and mobile journeys
+        run: npm run e2e
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-screenshots
+          path: e2e-shots
+          retention-days: 14
+          if-no-files-found: ignore
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.ref == 'refs/heads/main'
+    needs: [build, e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v5
