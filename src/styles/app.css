@@ -589,3 +589,33 @@ dialog.dialog[open] { animation: dialog-in var(--t-med) var(--ease); }
 .link-btn:hover { text-decoration-color: var(--ivory); }
 @media (min-width: 761px) and (max-width: 899px) { .dock { left: var(--rail-w); } }
 .stack > .seg, .field > .seg { align-self: flex-start; }
+
+/* teaching (Coach) */
+.board-frame.is-demo { box-shadow: 0 0 0 2px var(--c-mistake), 0 14px 40px rgba(0,0,0,.45); }
+.teach-kind { margin-left: auto; font-size: var(--fs-xs); font-weight: 650; color: var(--text-2); white-space: nowrap; }
+.teach-points { list-style: none; margin: 0 0 var(--s-3); padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.teach-point { display: block; width: 100%; text-align: left; border: 1px solid transparent; background: none; border-radius: var(--r-sm); padding: 6px 8px 6px 22px; position: relative; color: var(--ivory); line-height: 1.45; }
+.teach-point::before { content: ""; position: absolute; left: 8px; top: 13px; width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); }
+.teach-point.has-mark { cursor: pointer; }
+.teach-point.has-mark::before { background: var(--c-mistake); }
+.teach-point.has-mark:hover { background: color-mix(in srgb, var(--ivory) 6%, transparent); }
+.teach-point[aria-pressed="true"] { border-color: var(--c-mistake); background: color-mix(in srgb, var(--c-mistake) 10%, transparent); }
+.teach-point:not(.has-mark) { cursor: default; }
+.teach-actions, .teach-decide { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.teach-actions .btn, .teach-decide .btn { flex: 1 1 0; min-width: 0; padding: 0 var(--s-2); }
+.teach-decide { margin-top: var(--s-2); }
+.demo-caption { min-height: 64px; padding: var(--s-3); border-radius: var(--r-sm); background: var(--ink-0); margin-bottom: var(--s-3); }
+.demo-caption b { font-family: var(--font-display); }
+.demo-controls { display: flex; flex-wrap: wrap; gap: var(--s-2); align-items: center; margin-bottom: var(--s-3); }
+.demo-dots { display: flex; gap: 4px; flex-wrap: wrap; flex-basis: 100%; }
+.demo-dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--line-strong); }
+.demo-dots i.on { background: var(--ivory); }
+.compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-2); margin-bottom: var(--s-3); }
+.compare-col { padding: var(--s-3); border-radius: var(--r-sm); background: var(--ink-0); border-top: 3px solid var(--c-mistake); font-size: var(--fs-sm); }
+.compare-col.is-best { border-top-color: #62b03c; }
+.compare-col b { font-family: var(--font-display); font-size: var(--fs-lg); display: block; }
+.hint-kind { font-size: var(--fs-xs); color: var(--text-3); font-weight: 650; margin-right: 4px; }
+@media (max-width: 760px) {
+  .teach-actions .btn, .teach-decide .btn { min-height: 44px; }
+  .sheet-mobile.is-demo { max-height: 40dvh; }
+}

@@ -55,8 +55,12 @@ export interface CoachAttempt {
   tookBack: boolean;
   /** the attempt became the move actually played */
   final: boolean;
-  /** first attempt with no hints = independent evidence */
+  /** first attempt at this position in the session, made without hints = independent evidence */
   independent: boolean;
+  /** the move was committed and later undone with Take back */
+  rewound?: boolean;
+  /** the player looked at a demonstration (Show Why / Best Move) of this attempt */
+  sawDemo?: boolean;
   ts: number;
 }
 
@@ -102,6 +106,8 @@ export interface CoachSession {
   reason?: EndReason;
   seed: number;
   gameId?: string;
+  /** the Coach-level adaptation for this game has been applied (only once, even if the game is reopened) */
+  profileApplied?: boolean;
   createdAt: number;
   updatedAt: number;
 }

@@ -30,44 +30,64 @@ searches. Terms (all from the mover's point of view):
 * `winAfter` – winning chances after the played move.
 * **EPL** (expected points lost) = `max(0, winBest − winAfter)`.
 
-Rules, in order:
+Bands use the expected-points limits of Chess.com's Classification V2, with
+inclusive upper bounds (`THRESHOLDS` in `classify.ts`):
 
-| Class | Rule |
+| Band | EPL (0–100 scale) |
 |---|---|
-| Forced | only one legal move → shown as **Best**, excluded from accuracy |
-| **Book** | the move is a catalogued continuation in the opening reference (§4) *and every earlier move was too*, and EPL < 20 |
-| Mate handling | had a forced mate and lost it: **Miss** if the mate was ≤ 5 moves and the position is still ≥ 50 %; **Good** if still ≥ 99 %. Kept a mate but slower: **Excellent** (≤ 2 moves longer) or **Good** |
-| **Best** | the engine's top move, or a move whose MultiPV score equals the top score (±5 cp) |
-| **Excellent** | EPL < 2 |
-| **Good** | EPL < 5 |
-| **Inaccuracy** | EPL < 10 |
-| **Mistake** | EPL < 20 |
-| **Blunder** | EPL ≥ 20 |
+| **Best** | ≤ 0.05, or the engine's top move / a move with the top MultiPV score (not when a faster mate was available) |
+| **Excellent** | ≤ 2 |
+| **Good** | ≤ 5 |
+| **Inaccuracy** | ≤ 10 |
+| **Mistake** | ≤ 20 |
+| **Blunder** | > 20 |
 
-Upgrades/overrides:
+Rules, in order of precedence:
 
-* **Miss** – the opponent's previous move lost ≥ 10 expected points, that error
-  raised the mover's best chances by ≥ 10 over what they were before it, the
-  move played loses ≥ 10, *and* the mover ends up no more than 5 points below
-  where they stood before the opponent's error. In words: a real opportunity
-  appeared and was not taken, without the move itself being a fresh disaster
-  (that stays a Mistake/Blunder).
-* **Great** – a Best move where the second-best line is ≥ 15 expected points
-  worse (an "only move"), the position is neither lost (best < 30 %) nor
-  already trivially won (> 97 %), it is not a recapture on the square the
-  opponent just captured on, not a simple capture of an undefended piece, and
-  not a mate-in-one.
-* **Brilliant** – Best/Great/Excellent with EPL < 2 that **sacrifices ≥ 2 pawns
-  of material** (verified by static exchange evaluation on the real board: the
-  opponent can legally capture and come out ahead by that much, net of
-  anything the move itself captured), the resulting position is not worse for
-  the mover (≥ 50 %), the position was not already completely won, and a
-  **tactical verification search** confirms that after the opponent *accepts*
-  the sacrifice (best capture) the mover still has ≥ 50 %. Merely hanging a
-  piece is never Brilliant because it fails the EPL and verification tests.
-* **Provisional** – a classification is marked provisional until both of its
-  positions have been searched to the target (deep) depth. Reviews run a
-  quick pass first and then a deep pass that replaces every result.
+1. **Forced** – only one legal move: shown as Best, excluded from accuracy.
+2. **Book** – a catalogued continuation in the opening reference (§4) *and
+   every earlier move was too*, with EPL ≤ 20.
+3. **Mates** – keeping a forced mate but a slower one is Excellent (≤ 2 moves
+   longer) or Good. Losing a forced mate is a **Miss** when EPL > 5 and the
+   position is still ≥ 50 %, otherwise the band applies.
+4. **Brilliant** – all of: final depth (never provisional); EPL ≤ 2; the move
+   offers **≥ 2 pawns of material** that the opponent can win by a legal
+   capture sequence (static exchange on the real board, net of anything the
+   move captured, pins respected); the best *alternative* left the mover below
+   90 % (not already completely winning); the mover still has ≥ 45 % after the
+   move; and an **engine verification** (`analysis/verify.ts`) of the
+   opponent's acceptances — a restricted search over the legal captures that
+   take the material — confirms that a *real* acceptance (the material really
+   stays won three plies later, or the acceptance leads to mate) leaves the
+   mover ≥ 45 % and costs the opponent ≤ 15 points compared with declining.
+   A trap the opponent should simply not fall into (accepting loses for them,
+   e.g. the Légal pattern) is therefore not Brilliant; nor is a "sacrifice"
+   whose capture is immediately regained (4.Bb5 in the Scandinavian line
+   1.e4 d5 2.exd5 Qxd5 3.Nc3 Qc6: Qxb5?? Nxb5, so SEE = −6 and nothing is
+   offered).
+5. **Great** – the engine's top move at final depth with MultiPV alternatives,
+   not checkmate, not a routine recapture or capture of the piece that just
+   moved, not mate-in-one, and the game is not already decided, plus either
+   * *only move*: the second-best line is ≥ 15 points worse **and** falls in a
+     lower outcome band (lost < 20 %, worse < 40 %, equal ≤ 60 %, better < 80 %,
+     winning), or
+   * *turning point*: the opponent's previous move lost ≥ 10, this move gains
+     ≥ 10 over the alternative, and it lifts the mover into a higher outcome
+     band than before the opponent's error.
+6. **Best** – as in the table.
+7. **Miss** – EPL > 10, the opponent's previous move lost ≥ 10, that error
+   raised the mover's chances by ≥ 10 to a real chance (best ≥ 60 % or a
+   mate), the move gives most of it back (ends < 5 points above where the
+   mover stood before the error) without making things more than 5 points
+   worse than that. A fresh disaster stays a Mistake/Blunder.
+8. Otherwise the band for the EPL.
+
+* **Provisional** – a classification is provisional until both of its
+  positions have been searched to the target (deep) depth; Brilliant and Great
+  are never awarded provisionally. Reviews run a quick pass, then a deep pass
+  that replaces every result.
+* **Cached reviews** carry `REVIEW_VERSION`; reviews from an older rule set are
+  re-run automatically (engine results stay cached, so this is quick).
 
 ### Accuracy
 
@@ -139,15 +159,37 @@ crashed workers are restarted and the search retried (twice).
 
 * **Live rating**: player and Coach moves get a light search (live depth) for
   immediate feedback, shown as provisional, then a deep search replaces it.
-* **Feedback**: Mistake / Miss / Blunder always trigger feedback; Inaccuracy
-  does unless every skill the move touches is already mastered. Feedback names
-  concepts (abandoned defender, double attack available, king danger …) from
-  verified motifs of the played move and of the opponent's best reply, never
-  the better move. The player chooses **Take Back** or **Continue**.
+* **Feedback** (`coach/teach.ts`): Mistake / Miss / Blunder always stop the
+  game for feedback; an Inaccuracy does unless every skill the move touches is
+  already mastered (then it is a non-blocking note). Brilliant and Great moves,
+  and Best/Excellent moves with a verified notable motif, get a short note.
+  Post-move feedback is concrete: it names the piece, square, attackers and
+  defenders of anything left en prise, the capture that wins it, the opponent's
+  punishing reply (mate, fork, pin, skewer, discovered attack, mate threat),
+  the material swing along the engine line, and positional costs (castling
+  rights lost, doubled/isolated pawns, king shelter, new enemy passed pawn,
+  repeated moves of a developed piece). When none of these is present it says
+  that no tactic punishes the move and offers the engine's continuation.
+* **Show Why / Best Move / Compare**: Show Why plays the opponent's punishing
+  line from the position after the move (red = threats, orange = the concept,
+  blue = plans); Best Move plays the better line from the position before it
+  (green); Compare shows both moves' winning chances, material outcome and
+  lines. They are computed from the same analysis as the rating, offered only
+  after the move and only when asked, and they never change the game: the
+  board shows the demonstration position while the game state stays untouched
+  until **Return**. Pre-move hints never show the move.
+* **Take back** is unlimited and needs no confirmation: a pending move, any
+  played move (whatever its rating), after the Coach has replied (both moves
+  are undone), repeatedly, and after the game has ended (the game continues
+  and the saved game is overwritten on the next finish; the Coach level adapts
+  only once per session). In-flight engine work for the undone moves is
+  cancelled.
 * **Attempts log**: every attempt is stored (`coachAttempts`) with attempt
-  number, hints used before it, whether it was taken back and whether it became
-  the final move. An attempt is **independent** only if it is the first attempt
-  at that move and no hint was used.
+  number, hints used before it, whether it was taken back or rewound, whether
+  a demonstration was studied, and whether it became the final move. An
+  attempt is **independent** only if it is the first attempt at that position
+  (matched by position key, so transpositions count) and no hint was used.
+  Independent and assisted evidence are kept apart in the learning profile.
 * **Learning profile** (`coach/profile.ts`): each decision is tagged with the
   skills it gives evidence about (`coach/skills.ts`) and recorded as success
   (EPL < 5), half (EPL < 10) or failure, in separate *independent* and
@@ -156,10 +198,14 @@ crashed workers are restarted and the search retried (twice).
   *mastered* when the lower 90 % bound is ≥ 70 % with moderate+ confidence.
   Focus areas are the weakest skills with evidence. The Coach's level moves up
   after wins / draws and down after low independent accuracy.
-* **Hints** (`coach/hints.ts`): three levels — where to look (threats, forcing
-  moves, king, quiet improvement), which piece type, then the idea (fork, pin,
-  mate net …). Text is sanitised so it never contains the move's SAN or its
-  destination square; no arrows or highlights are shown.
+* **Hints** (`coach/hints.ts`): unlimited. Position hints come first (threats
+  against you, where to look, the opponent's last move, which piece type,
+  counted checks and captures, the idea, king pressure, development, pawn
+  structure, open files, outposts, material), then general calculation
+  techniques (labelled), then a review of the earlier hints. Every hint is
+  checked so it never contains the recommended move's SAN, its destination
+  square or (for rooks and queens) its destination file; no arrows or
+  highlights are shown before the move.
 * **Predict the Opponent** (`coach/prediction.ts`): teaching value = mating
   idea +4, tactical motif +3, sacrifice +2, engine line wins ≥ 2 pawns +2,
   only-move gap ≥ 15 +2, punishes a loose piece +1, trade into an endgame +1;

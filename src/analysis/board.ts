@@ -269,3 +269,110 @@ export function gamePhase(fen: string, ply: number): Phase {
   if (ply <= 20) return 'opening';
   return 'middlegame';
 }
+
+// ---------------------------------------------------------------------------
+// Structural facts (verifiable from the board alone), used by hints and
+// post-move explanations.
+// ---------------------------------------------------------------------------
+
+/** Minor pieces of `color` still on their original squares. */
+export function undevelopedMinors(b: Board, color: Color): string[] {
+  const home = color === 'w' ? { n: ['b1', 'g1'], b: ['c1', 'f1'] } : { n: ['b8', 'g8'], b: ['c8', 'f8'] };
+  const out: string[] = [];
+  for (const t of ['n', 'b'] as const) for (const sq of home[t]) { const p = b[sqIdx(sq)]; if (p && p.c === color && p.t === t) out.push(sq); }
+  return out;
+}
+
+/** Castling rights still available to `color` according to the FEN. */
+export function castlingRights(fen: string, color: Color): string {
+  const f = fen.split(' ')[2] ?? '-';
+  return [...f].filter((ch) => (color === 'w' ? /[KQ]/ : /[kq]/).test(ch)).join('');
+}
+
+/** Has `color` castled (king on g/c file of its back rank with rights gone)? Heuristic on the final position. */
+export function looksCastled(b: Board, color: Color): boolean {
+  const k = kingSquare(b, color);
+  const rank = color === 'w' ? 0 : 7;
+  return k >= 0 && Math.floor(k / 8) === rank && (k % 8 === 6 || k % 8 === 2);
+}
+
+export function pawnFiles(b: Board, color: Color): number[] {
+  const files = new Array(8).fill(0);
+  for (let i = 0; i < 64; i++) { const p = b[i]; if (p?.t === 'p' && p.c === color) files[i % 8]++; }
+  return files;
+}
+
+/** Files on which `color` has two or more pawns. */
+export function doubledFiles(b: Board, color: Color): string[] {
+  return pawnFiles(b, color).map((n, f) => (n >= 2 ? 'abcdefgh'[f] : '')).filter(Boolean);
+}
+
+/** Pawns of `color` with no friendly pawn on an adjacent file. */
+export function isolatedPawns(b: Board, color: Color): string[] {
+  const files = pawnFiles(b, color);
+  const out: string[] = [];
+  for (let i = 0; i < 64; i++) {
+    const p = b[i];
+    if (p?.t !== 'p' || p.c !== color) continue;
+    const f = i % 8;
+    if ((f === 0 || !files[f - 1]) && (f === 7 || !files[f + 1])) out.push(sqName(i));
+  }
+  return out;
+}
+
+/** Files with no pawns at all (open) and files without `color`'s pawns but with the opponent's (half-open). */
+export function openFiles(b: Board, color: Color): { open: string[]; halfOpen: string[] } {
+  const mine = pawnFiles(b, color);
+  const theirs = pawnFiles(b, other(color));
+  const open: string[] = [];
+  const halfOpen: string[] = [];
+  for (let f = 0; f < 8; f++) {
+    if (!mine[f] && !theirs[f]) open.push('abcdefgh'[f]);
+    else if (!mine[f] && theirs[f]) halfOpen.push('abcdefgh'[f]);
+  }
+  return { open, halfOpen };
+}
+
+/**
+ * Outposts for `color`: squares in the opponent's half that no enemy pawn can
+ * ever attack (no enemy pawns on adjacent files ahead of it) and that one of
+ * `color`'s pawns defends.
+ */
+export function outposts(b: Board, color: Color): string[] {
+  const out: string[] = [];
+  const dir = color === 'w' ? 1 : -1;
+  for (let i = 0; i < 64; i++) {
+    const r = Math.floor(i / 8);
+    const f = i % 8;
+    if (color === 'w' ? r < 4 || r > 6 : r > 3 || r < 1) continue;
+    if (b[i] && b[i]!.c === color && b[i]!.t === 'p') continue;
+    let attackable = false;
+    for (let j = 0; j < 64 && !attackable; j++) {
+      const q = b[j];
+      if (q?.t !== 'p' || q.c === color) continue;
+      const qf = j % 8;
+      const qr = Math.floor(j / 8);
+      if (Math.abs(qf - f) === 1 && (color === 'w' ? qr > r : qr < r)) attackable = true;
+    }
+    if (attackable) continue;
+    const supported = [f - 1, f + 1].some((sf) => {
+      if (sf < 0 || sf > 7) return false;
+      const s = (r - dir) * 8 + sf;
+      return s >= 0 && s < 64 && b[s]?.t === 'p' && b[s]!.c === color;
+    });
+    if (supported) out.push(sqName(i));
+  }
+  return out;
+}
+
+/** Enemy pieces (excluding pawns and king) that attack squares next to `color`'s king. */
+export function kingPressure(b: Board, color: Color): string[] {
+  const zone = new Set(kingZone(b, color));
+  const out: string[] = [];
+  for (let i = 0; i < 64; i++) {
+    const p = b[i];
+    if (!p || p.c === color || p.t === 'k' || p.t === 'p') continue;
+    if (attacks(b, i).some((s) => zone.has(s))) out.push(sqName(i));
+  }
+  return out;
+}

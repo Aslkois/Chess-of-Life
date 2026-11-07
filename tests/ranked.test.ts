@@ -27,6 +27,10 @@ describe('Ranked assistance restrictions', () => {
     expect(allowed('coach', 'hints')).toBe(true);
     expect(allowed('coach', 'engineLines')).toBe(false);
     expect(allowed('coach', 'bestMoveArrows')).toBe(false);
+    expect(allowed('coach', 'evalBar')).toBe(false);
+    expect(allowed('coach', 'demonstrations')).toBe(true);
+    expect(allowed('ranked-active', 'demonstrations')).toBe(false);
+    expect(allowed('ranked-active', 'openingInfo')).toBe(false);
   });
 });
 

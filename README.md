@@ -17,7 +17,7 @@ your browser. No account, no server, no subscription, no limits on reviews.
 |---|---|
 | **Game Review** | Enter a game by **reconstructing it move by move** on the board (both sides, legal moves only, undo/redo, autosave) or **import PGN** (paste or file, many games per file, headers/clocks/comments/NAGs/variations preserved, clear error reporting). Both produce the same game record. Review shows accuracy for both players, the ten move classifications (Brilliant, Great, Best, Excellent, Good, Book, Inaccuracy, Mistake, Miss, Blunder), evaluation bar and graph, winning-chance changes, centipawn loss, best lines, verified tactical explanations, turning points, opening name and a written summary. Results are provisional after a quick pass and refined by a deep pass. |
 | **Tree of Life** | Play any move from any position to branch; branches nest without limit. Stockfish can play a move, a line or 6 moves of continuation. Branches can be named, annotated, compared with the original game (evaluation, winning chances, material, verified consequences) and deleted. The original game is immutable. Outline view + branch map; transpositions share cached evaluations. PGN export with nested variations. |
-| **Coach** | A real game against an opponent whose goal is your improvement. Every move — yours and the Coach's — is rated live (provisional, then refined). Mistakes, misses and blunders trigger a conceptual explanation with **Take Back** or **Continue** (your choice). Up to three progressive hints per move that point to *what to look at*, never the move. Selective **Predict the Opponent** exercises at moments with real teaching value. A persistent learning profile separates independent decisions from assisted ones and reports confidence honestly. |
+| **Coach** | A real game against an opponent whose goal is your improvement. Every move — yours and the Coach's — is rated live (provisional, then refined). Mistakes, misses and blunders get a concrete explanation (which piece, which square, the punishing reply) with **Show Why**, **Best Move** and **Compare** demonstrations on request, then **Retry** or **Continue**. **Take back** any move, as often as you like — after the Coach's reply or even after the game has ended. Unlimited hints that point to *what to look at*, never the move. Selective **Predict the Opponent** exercises at moments with real teaching value. A persistent learning profile separates independent decisions from assisted ones and reports confidence honestly. |
 | **Ranked Rival** | Competitive games with clocks (3+2 … 30+20 or untimed), resignation, draw offers, threefold / 50-move claims, automatic fivefold / 75-move / dead-position draws and FIDE time-forfeit rules. **No assistance of any kind** while the game is running — and every other part of the app is locked. The Rival plays at a fixed, calibrated level, learns only from completed Ranked games, and steers toward your demonstrated weaknesses with sound moves. Internal Glicko-2 rating, match history, adaptation log. Analysis unlocks after the game. |
 | **Data** | IndexedDB with versioned migrations: games, drafts, reviews, engine cache, branches, Coach sessions / attempts / predictions, learning profile, Ranked matches, Rival model and adaptations, preferences. Export / import a JSON backup; delete everything. Works offline after the first visit (PWA). |
 
@@ -95,8 +95,12 @@ rejection, queue cancellation, pre-emption, crash restart, terminal positions;
 full two-pass game review, Rival move legality and model learning;
 classification rules for every class incl. Miss, Great, Brilliant
 verification, Book; IndexedDB persistence across reconnects, backups;
-Coach takeback history (original mistake kept, retries marked assisted),
-independent vs assisted evidence, hints never revealing the move, prediction
+Coach takebacks (any move, repeatedly, after the Coach's reply and after the
+game ends; original decisions kept, retries marked assisted, transpositions
+recognised), specific post-move explanations that never invent a tactic
+(hanging pieces, mates, positional costs, honest "no tactic" lines), Show Why /
+Best Move / Compare lines, independent vs assisted evidence, unlimited hints
+that never reveal the move, prediction
 selection / cooldown / mastery, fair grading; Ranked assistance policy,
 Glicko-2, Rival learning only from Ranked data (Coach data present in the DB is
 ignored), decided positions ignored as evidence, deterministic strategy,
@@ -116,7 +120,9 @@ with the stamp staying on its square; rapid replay; move-list auto-scroll on a
 longer game; branching (nested branch, engine continuation, naming,
 comparison, back to game); persistence and PGN export with variations;
 under-promotion through the picker; multi-game PGN import with an illegal
-move; a Coach game with hint, feedback, takeback and rated moves; Ranked with
+move; a Coach game with six hints, feedback, Show Why / Best Move / Compare
+leaving the game untouched, Retry, and takebacks after the Coach's reply
+(button and keyboard); Ranked with
 every assistive element absent, the app locked, resume after reload,
 resignation and rating change; reduced motion; offline use; layouts at 1280,
 1024, 820 and 390 px without overflow and with replay controls on screen; and

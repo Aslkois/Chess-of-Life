@@ -1,4 +1,4 @@
-import { all, get, put } from '../db/db';
+import { all, del, get, put } from '../db/db';
 import type { CoachAttempt, PredictionRecord } from '../db/types';
 import { emptyProfile, recordDecision, recordPrediction, adaptCoachLevel, type LearningProfile } from '../coach/profile';
 import { isInformative, outcomeOf, tagSkills } from '../coach/skills';
@@ -39,7 +39,11 @@ export async function savePrediction(r: Omit<PredictionRecord, 'id' | 'ts'>, out
   await saveCoachProfile(recordPrediction(p, r.category, outcome));
 }
 
-/** Finish a Coach game: store it as a reviewable game and adapt the Coach level. */
+/**
+ * Finish a Coach game: store it as a reviewable game and adapt the Coach
+ * level. A game reopened with Take back and finished again updates the same
+ * saved game, and the level adaptation is applied only once per session.
+ */
 export async function finishCoachGame(s: CoachState, independentAccuracy: number | null): Promise<string> {
   const playerScore = s.session.result === '1/2-1/2' ? 0.5 : (s.session.result === '1-0') === (s.session.playerColor === 'w') ? 1 : 0;
   const g = gameFromMoves('coach', s.session.moves, {
@@ -48,11 +52,19 @@ export async function finishCoachGame(s: CoachState, independentAccuracy: number
     Result: s.session.result,
   }, s.session.result, s.session.startFen);
   g.coachSessionId = s.session.id;
+  if (s.session.gameId) {
+    const existing = await get('games', s.session.gameId);
+    if (existing) { g.id = existing.id; g.createdAt = existing.createdAt; }
+    else g.id = s.session.gameId;
+    await del('reviews', g.id); // the moves changed: the old review no longer applies
+  }
   await saveGame(g);
-  const session = { ...s.session, gameId: g.id };
+  const session = { ...s.session, gameId: g.id, profileApplied: true };
   await persistCoachState({ ...s, session });
   const p = await loadCoachProfile();
-  await saveCoachProfile({ ...adaptCoachLevel(p, independentAccuracy, playerScore), hintsUsed: p.hintsUsed + s.session.hintsUsed });
+  if (!s.session.profileApplied) {
+    await saveCoachProfile({ ...adaptCoachLevel(p, independentAccuracy, playerScore), hintsUsed: p.hintsUsed + s.session.hintsUsed });
+  }
   return g.id;
 }
 
