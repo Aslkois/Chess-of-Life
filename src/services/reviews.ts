@@ -1,5 +1,5 @@
 import { get, put } from '../db/db';
-import { reviewGame, type GameReview } from '../analysis/review';
+import { reviewGame, REVIEW_VERSION, type GameReview } from '../analysis/review';
 import type { GameRecord, RankedMatch } from '../db/types';
 import { getEngine } from '../engine/instance';
 import { learnFromRankedGame } from './ranked';
@@ -10,6 +10,17 @@ import { learnFromRankedGame } from './ranked';
  */
 interface Run { listeners: Set<(r: GameReview) => void>; last: GameReview | null; promise: Promise<GameReview>; abort: AbortController }
 const runs = new Map<string, Run>();
+
+/**
+ * Should a stored review be (re)computed? True when missing, unfinished,
+ * shallower than the current setting, or made by older classification rules.
+ * Only the review record is replaced; the game and its branches are untouched.
+ */
+export function needsReReview(r: GameReview | null | undefined, deepDepth: number): boolean {
+  if (!r) return true;
+  if ((r.version ?? 1) < REVIEW_VERSION) return true;
+  return r.status !== 'complete' || r.deepDepth < deepDepth;
+}
 
 export function isReviewRunning(gameId: string) {
   return runs.has(gameId);

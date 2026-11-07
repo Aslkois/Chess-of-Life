@@ -105,10 +105,10 @@ describe('move classification', () => {
     expect(unverified.sacrifice).toBeGreaterThanOrEqual(2);
     expect(unverified.needsSacrificeCheck).toBe(true);
     expect(unverified.cls).not.toBe('brilliant');
-    expect(classifyMove({ ...base, sacrificeAcceptedWin: 100 }).cls).toBe('brilliant');
-    expect(classifyMove({ ...base, sacrificeAcceptedWin: 10 }).cls).not.toBe('brilliant');
+    expect(classifyMove({ ...base, sacrificeCheck: { acceptUci: 'Rxg8', acceptWin: 100, depth: 16, real: true } }).cls).toBe('brilliant');
+    expect(classifyMove({ ...base, sacrificeCheck: { acceptUci: 'Rxg8', acceptWin: 10, depth: 16, real: true } }).cls).not.toBe('brilliant');
     // simply hanging a piece is not a sacrifice-brilliancy
-    const hang = classifyMove(ctx(MID, 'Bxf7+', [['Ng5', { cp: 40 }]], { cp: -300 }, { sacrificeAcceptedWin: 0 }));
+    const hang = classifyMove(ctx(MID, 'Bxf7+', [['Ng5', { cp: 40 }]], { cp: -300 }, { sacrificeCheck: { acceptUci: 'Kxf7', acceptWin: 0, depth: 16, real: true } }));
     expect(hang.cls).toBe('blunder');
   });
 

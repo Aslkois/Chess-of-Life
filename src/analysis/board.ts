@@ -123,8 +123,12 @@ export function seeMove(b0: Board, from: number, to: number): number {
     side = other(side);
     if (onSquare.t === 'k') break;
   }
-  while (--d > 0) gain[d - 1] = -Math.max(-gain[d - 1], gain[d]);
-  return gain[0];
+  // Negamax the swap list back to the first capture. Every entry 0..d is a
+  // capture that really happened, so all of them take part (the textbook
+  // `while (--d)` form assumes one extra *speculative* entry, which this loop
+  // does not store – using it here silently dropped the last recapture).
+  for (; d > 0; d--) gain[d - 1] = -Math.max(-gain[d - 1], gain[d]);
+  return gain[0] || 0; // normalise -0
 }
 
 export interface Hanging { square: string; piece: Piece; loss: number; attackers: string[] }

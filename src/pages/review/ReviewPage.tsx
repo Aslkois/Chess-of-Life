@@ -20,7 +20,8 @@ import { IconBranch, IconDownload, IconEye, IconFlip, IconKeyboard } from '../..
 import { useApp } from '../../ui/context';
 import { useKeys } from '../../ui/useKeys';
 import { gamePgn, gameTitle, queueTreeSave } from '../../services/games';
-import { ensureReview, releaseReview } from '../../services/reviews';
+import { ensureReview, needsReReview, releaseReview } from '../../services/reviews';
+import { REVIEW_VERSION } from '../../analysis/review';
 import { allowed, type Mode } from '../../modes';
 import { MoveCard } from './MoveCard';
 import { prettyDate } from '../../util/format';
@@ -63,7 +64,7 @@ export function ReviewPage({ gameId }: { gameId?: string }) {
       const r = await get('reviews', gameId);
       if (!alive) return;
       if (r) setReview(r);
-      if (!r || r.status !== 'complete' || r.deepDepth < prefs.deepDepth) startReview(g, r ?? null);
+      if (needsReReview(r, prefs.deepDepth)) startReview(g, r && (r.version ?? 1) >= REVIEW_VERSION ? r : null);
     })();
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
