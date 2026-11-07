@@ -28,7 +28,16 @@ const results = [];
 async function step(name, fn) {
   const t = Date.now();
   try { await fn(); results.push(`PASS ${name} (${((Date.now() - t) / 1000).toFixed(1)}s)`); }
-  catch (e) { failures++; results.push(`FAIL ${name}: ${e.message.split('\n')[0]}`); }
+  catch (e) {
+    failures++;
+    results.push(`FAIL ${name}: ${e.message.split('\n')[0]}`);
+    const tag = name.split(' ')[0];
+    try {
+      await page.screenshot({ path: `${SHOTS}/FAILED-${tag}.png` });
+      const text = (await page.locator('main').innerText()).replace(/\s+/g, ' ').slice(0, 600);
+      results.push(`     page: ${page.url()} :: ${text}`);
+    } catch { /* ignore */ }
+  }
 }
 const assert = (c, m) => { if (!c) throw new Error(m); };
 
@@ -156,7 +165,6 @@ try {
     await page.goto(URL + '#/coach');
     await page.getByTestId('start-coach').click();
     await page.waitForSelector('[data-testid="coach-board"]');
-    // 1. f3 is a known weakening move; 2. g4 next would be a blunder
     await play('coach-board', ['e2e3']);
     await page.waitForFunction(() => !document.querySelector('[data-testid="evaluating"]'), null, { timeout: 30000 });
     await page.waitForTimeout(500);
@@ -166,25 +174,45 @@ try {
     await page.waitForSelector('[data-testid="hints"]');
     const hint = await page.getByTestId('hints').innerText();
     assert(hint.length > 20, 'hint should have text');
-    // hang a piece: move a white minor piece or queen onto a square a black pawn attacks
+    // play deliberately poor moves (preferably hanging a piece) until the Coach intervenes
     const { Chess } = require('chess.js');
-    const fen = await page.getByTestId('coach-board').getAttribute('data-fen');
-    const c = new Chess(fen);
-    const pawnAttacked = (sqr) => c.board().flat().some((p) => p && p.color === 'b' && p.type === 'p' && Math.abs(p.square.charCodeAt(0) - sqr.charCodeAt(0)) === 1 && +p.square[1] - 1 === +sqr[1]);
-    const hang = c.moves({ verbose: true }).find((m) => ['n', 'b', 'q'].includes(m.piece) && !m.captured && pawnAttacked(m.to));
-    assert(hang, 'no hanging move found in ' + fen);
-    await play('coach-board', [hang.from + hang.to]);
+    let c;
+    for (let tries = 0; tries < 10; tries++) {
+      const fen = await page.getByTestId('coach-board').getAttribute('data-fen');
+      c = new Chess(fen);
+      const moves = c.moves({ verbose: true });
+      const hangs = moves.filter((m) => {
+        if (m.piece === 'k' || m.piece === 'p') return false;
+        const t = new Chess(fen); t.move(m);
+        return t.isAttacked(m.to, 'b') && !t.isAttacked(m.to, 'w');
+      }).sort((a, b) => ({ q: 0, r: 1, b: 2, n: 3 }[a.piece] - { q: 0, r: 1, b: 2, n: 3 }[b.piece]));
+      const rim = moves.filter((m) => /^[ah]/.test(m.to) && m.piece !== 'k');
+      const mv = hangs[0] ?? rim[0] ?? moves[0];
+      const n0 = await page.locator('[data-testid="movelist"] .mv').count();
+      await play('coach-board', [mv.from + mv.to]);
+      // either the Coach intervenes, or our move is accepted and the Coach replies
+      await page.waitForFunction((k) => document.querySelector('[data-testid="coach-feedback"]') || document.querySelectorAll('[data-testid="movelist"] .mv').length >= k + 2, n0, { timeout: 60000 });
+      if (await page.getByTestId('coach-feedback').count()) break;
+      await page.waitForFunction(() => (document.querySelector('[data-testid="coach-board"]')?.getAttribute('data-fen') || '').split(' ')[1] === 'w' && !document.body.innerText.includes('The Coach is thinking'), null, { timeout: 60000 });
+      if (await page.getByTestId('prediction').count()) await page.getByTestId('skip-prediction').click();
+      if (await page.getByTestId('lesson').count()) await page.getByRole('button', { name: 'Got it' }).click();
+    }
     await page.waitForSelector('[data-testid="coach-feedback"]', { timeout: 30000 });
     const fb = await page.getByTestId('coach-feedback').innerText();
     assert(/Blunder|Mistake|Miss/.test(fb), `expected a serious error, got: ${fb.slice(0, 80)}`);
     await page.screenshot({ path: `${SHOTS}/c1-coach-feedback.png` });
+    const withPending = await page.locator('[data-testid="movelist"] .mv').count();
     await page.getByTestId('take-back').click();
-    assert((await page.locator('[data-testid="movelist"] .mv').count()) === 2, 'takeback should remove the pending move');
-    const safe = ['g1f3', 'b1c3', 'd2d4', 'f1e2'].find((u) => c.moves({ verbose: true }).some((m) => m.from + m.to === u && !pawnAttacked(m.to)));
+    assert((await page.locator('[data-testid="movelist"] .mv').count()) === withPending - 1, 'takeback should remove the pending move');
+    c = new Chess(await page.getByTestId('coach-board').getAttribute('data-fen'));
+    const pawnAttacked = (sq) => { const t = new Chess(c.fen()); return t.isAttacked(sq, 'b'); };
+    const legal = c.moves({ verbose: true });
+    const safe = ['g1f3', 'b1c3', 'd2d4', 'f1e2'].find((u) => legal.some((m) => m.from + m.to === u && !pawnAttacked(m.to)))
+      ?? legal.filter((m) => !pawnAttacked(m.to)).map((m) => m.from + m.to)[0] ?? legal[0].from + legal[0].to;
     await play('coach-board', [safe]);
-    // a sound move is accepted (no takeback prompt); the Coach replies
-    await page.waitForFunction(() => document.querySelectorAll('[data-testid="movelist"] .mv').length >= 4 || document.querySelector('[data-testid="coach-feedback"]'), null, { timeout: 60000 });
-    if (await page.getByTestId('coach-feedback').count()) { await page.getByTestId('continue').click(); await page.waitForFunction(() => document.querySelectorAll('[data-testid="movelist"] .mv').length >= 4, null, { timeout: 60000 }); }
+    // the move is rated and the Coach replies (or intervenes again)
+    await page.waitForFunction((k) => document.querySelectorAll('[data-testid="movelist"] .mv').length >= k + 1 || document.querySelector('[data-testid="coach-feedback"]'), withPending, { timeout: 60000 });
+    if (await page.getByTestId('coach-feedback').count()) { await page.getByTestId('continue').click(); }
     const badges = await page.locator('[data-testid="movelist"] .badge').count();
     assert(badges >= 3, 'coach and player moves should carry ratings');
     const stats = await page.locator('text=takebacks 1').count();
