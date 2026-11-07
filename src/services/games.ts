@@ -29,6 +29,19 @@ export async function saveTree(gameId: string, tree: GameTree) {
   await put('games', { ...g, tree, updatedAt: Date.now() });
 }
 
+const saveChains = new Map<string, Promise<void>>();
+
+/**
+ * Persist a tree edit immediately, keeping writes for the same game in the
+ * order they were made (a later edit can never be overwritten by an earlier one).
+ */
+export function queueTreeSave(gameId: string, tree: GameTree): Promise<void> {
+  const prev = saveChains.get(gameId) ?? Promise.resolve();
+  const next = prev.catch(() => undefined).then(() => saveTree(gameId, tree));
+  saveChains.set(gameId, next);
+  return next;
+}
+
 export function gameTitle(g: Pick<GameRecord, 'headers' | 'source'>): string {
   const w = g.headers.White && g.headers.White !== '?' ? g.headers.White : 'White';
   const b = g.headers.Black && g.headers.Black !== '?' ? g.headers.Black : 'Black';

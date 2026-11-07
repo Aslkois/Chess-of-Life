@@ -17,7 +17,7 @@ import { EvalGraph } from '../ui/EvalGraph';
 import { TreeView } from '../ui/TreeView';
 import { IconFirst, IconFlip, IconLast, IconNext, IconPrev } from '../ui/icons';
 import { useApp } from '../ui/context';
-import { gamePgn, gameTitle, saveTree } from '../services/games';
+import { gamePgn, gameTitle, queueTreeSave } from '../services/games';
 import { allowed, type Mode } from '../modes';
 import { ensureReview, releaseReview } from '../services/reviews';
 
@@ -69,7 +69,11 @@ export function ReviewPage({ gameId }: { gameId?: string }) {
       if (r.status === 'complete' && g.rankedMatchId) toast('Analysis complete — the Rival is learning from this game.');
     });
   }, [prefs.quickDepth, prefs.deepDepth, toast]);
-  useEffect(() => () => { unsub.current?.(); if (game) releaseReview(game); }, [game]);
+  // Unsubscribe only when the page unmounts. (A cleanup keyed on `game` used to
+  // run after the subscription had been made and silently drop it.)
+  const gameRef = useRef<GameRecord | null>(null);
+  useEffect(() => { gameRef.current = game ?? null; }, [game]);
+  useEffect(() => () => { unsub.current?.(); if (gameRef.current) releaseReview(gameRef.current); }, []);
 
   // ---------- derived ----------
   const line = useMemo(() => (tree ? mainline(tree) : []), [tree]);
@@ -96,11 +100,10 @@ export function ReviewPage({ gameId }: { gameId?: string }) {
   }, [node?.id, node?.fen, mode, prefs.liveDepth]);
 
   // ---------- persistence of explored branches ----------
-  const saveTimer = useRef<ReturnType<typeof setTimeout>>();
+  // every edit is written at once (no debounce), so closing the page never loses a branch
   const commitTree = (t: GameTree) => {
     setTree(t);
-    clearTimeout(saveTimer.current);
-    if (game) saveTimer.current = setTimeout(() => { void saveTree(game.id, t); }, 300);
+    if (game) void queueTreeSave(game.id, t);
   };
 
   // ---------- navigation ----------

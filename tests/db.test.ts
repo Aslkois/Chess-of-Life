@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { all, closeDb, deleteAllData, exportAll, get, getPrefs, importBackup, listGames, persistentAnalysisCache, put, setPrefs, deleteGame } from '../src/db/db';
-import { gameFromMoves, saveGame, saveTree, gamePgn } from '../src/services/games';
+import { gameFromMoves, saveGame, saveTree, gamePgn, queueTreeSave } from '../src/services/games';
 import { addMove, mainline } from '../src/chess/tree';
 
 describe('IndexedDB persistence', () => {
@@ -21,6 +21,24 @@ describe('IndexedDB persistence', () => {
     expect(pgn).toContain('(2. Bc4');
     await deleteGame(g.id);
     expect(await listGames()).toHaveLength(0);
+  });
+
+  it('keeps rapid successive branch edits in order (no lost writes)', async () => {
+    const g = gameFromMoves('manual', ['e4', 'e5', 'Nf3'], {}, '*');
+    await saveGame(g);
+    let tree = g.tree;
+    let at = mainline(tree)[3];
+    const saves: Promise<void>[] = [];
+    for (const mv of ['Nc6', 'Bb5', 'a6', 'Ba4', 'Nf6']) {
+      const r = addMove(tree, at, mv, 'user');
+      tree = r.tree; at = r.nodeId;
+      saves.push(queueTreeSave(g.id, tree)); // fire without awaiting, like UI clicks
+    }
+    await Promise.all(saves);
+    await closeDb();
+    const stored = (await listGames())[0];
+    expect(Object.keys(stored.tree.nodes)).toHaveLength(Object.keys(tree.nodes).length);
+    expect(stored.tree.nodes[at].san).toBe('Nf6');
   });
 
   it('stores drafts, preferences and engine cache entries', async () => {
