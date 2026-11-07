@@ -52,6 +52,7 @@ export async function finishCoachGame(s: CoachState, independentAccuracy: number
     Result: s.session.result,
   }, s.session.result, s.session.startFen);
   g.coachSessionId = s.session.id;
+  g.playerColor = s.session.playerColor;
   if (s.session.gameId) {
     const existing = await get('games', s.session.gameId);
     if (existing) { g.id = existing.id; g.createdAt = existing.createdAt; }

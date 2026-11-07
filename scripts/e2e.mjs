@@ -343,6 +343,78 @@ try {
     assert(/3\s*takebacks/.test(await page.locator('details:has(summary:has-text("This game"))').innerText()), 'all takebacks should be counted');
   });
 
+  // ---------- Journey E: openings ----------
+  await step('E1 opening explorer: names, book status, theory, engine only on request, masters honest', async () => {
+    await page.goto(URL + '#/openings');
+    await page.waitForSelector('[data-testid="opening-explorer"]');
+    assert(/Starting position/.test(await page.getByTestId('opening-name').innerText()), 'start position has no opening name');
+    for (const m of ['e2e4', 'c7c5', 'g1f3', 'd7d6', 'd2d4', 'c5d4', 'f3d4', 'g8f6', 'b1c3']) await play('explorer-board', [m]);
+    let name = await page.getByTestId('opening-name').innerText();
+    assert(/Sicilian Defense/.test(name) && !/Najdorf/.test(name), `no premature variation name: ${name}`);
+    await play('explorer-board', ['a7a6']);
+    name = await page.getByTestId('opening-name').innerText();
+    assert(/Najdorf Variation/.test(name) && /B90/.test(name) && /Catalogued position/.test(name), `Najdorf B90 expected: ${name}`);
+    assert(/e2e4,c7c5/.test(page.url()), 'the address follows the position');
+    assert((await page.getByTestId('continuation').count()) >= 5, 'catalogued continuations listed');
+    await page.screenshot({ path: `${SHOTS}/e1-explorer.png` });
+    // leave theory
+    await play('explorer-board', ['h2h4']);
+    assert(/Outside the catalogued theory since 6\.h4/.test(await page.getByTestId('opening-name').innerText()), 'leaving theory is reported');
+    assert(/Najdorf/.test(await page.getByTestId('opening-name').innerText()), 'last known identity kept');
+    await page.keyboard.press('ArrowLeft');
+    await page.getByTestId('pane-masters').click();
+    assert(/not included/.test(await page.getByTestId('masters-unavailable').innerText()), 'masters: honest unavailable state');
+    await page.getByTestId('pane-engine').click();
+    assert((await page.getByTestId('engine-lines-explorer').count()) === 0, 'no engine output before it is requested');
+    await page.getByTestId('analyse-position').click();
+    await page.waitForSelector('[data-testid="engine-lines-explorer"]', { timeout: 60000 });
+    await page.getByTestId('pane-mine').click();
+    await page.waitForSelector('[data-testid="my-games"]');
+  });
+
+  await step('E2 repertoire and practice: save a line, unlimited retries, opponent replies', async () => {
+    await page.getByTestId('add-to-repertoire').click();
+    await page.getByTestId('save-line-confirm').click();
+    await page.goto(URL + '#/openings/repertoire');
+    await page.waitForSelector('[data-testid="rep-line"]');
+    assert(/Najdorf/.test(await page.getByTestId('rep-line').first().innerText()), 'line saved');
+    await page.getByTestId('practise-b').click();
+    await page.waitForFunction(() => /Your move/.test(document.querySelector('[data-testid="practice-status"]')?.textContent || ''), null, { timeout: 10000 });
+    for (let i = 0; i < 3; i++) await play('practice-board', ['e7e5']);
+    assert(/not in your line/.test(await page.getByTestId('practice-note').innerText()), 'wrong move rejected');
+    assert((await page.locator('[data-testid="practice-moves"] .ml-cell').count()) === 1, 'the wrong move is not played');
+    await page.getByTestId('practice-show').click();
+    assert(/c5/.test(await page.getByTestId('practice-note').innerText()), 'Show me reveals the prepared move');
+    await play('practice-board', ['c7c5']);
+    await page.waitForFunction(() => document.querySelectorAll('[data-testid="practice-moves"] .ml-cell').length >= 3, null, { timeout: 10000 });
+    await page.screenshot({ path: `${SHOTS}/e2-practice.png` });
+  });
+
+  await step('E3 review and progress: opening per position, your side, personal statistics', async () => {
+    await page.goto(URL + '#/import');
+    await page.getByTestId('pgn-text').fill('[White "alice99"]\n[Black "Bob"]\n[Date "2026.03.04"]\n[Result "1-0"]\n\n1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 6. h4 e5 7. Nf3 Be7 1-0');
+    await page.getByTestId('parse-pgn').click();
+    await page.getByTestId('import-selected').click();
+    await page.waitForURL(/#\/review\//);
+    const id = page.url().split('/review/')[1].split('/')[0];
+    await page.goto(URL + `#/review/${id}/10`);
+    await page.waitForSelector('[data-testid="review-opening"]');
+    let op = await page.getByTestId('review-opening').innerText();
+    assert(/Najdorf/.test(op) && /Book/.test(op), `review opening at 5...a6: ${op}`);
+    await page.keyboard.press('ArrowRight');
+    op = await page.getByTestId('review-opening').innerText();
+    assert(/Out of book/.test(op) && /leaves the catalogued theory/.test(op) && /not a mistake in itself/.test(op), `leaving theory explained: ${op}`);
+    await page.getByTestId('game-side').selectOption('w');
+    await page.screenshot({ path: `${SHOTS}/e3-review-opening.png` });
+    await page.goto(URL + '#/profile');
+    await page.getByTestId('progress-openings').click();
+    await page.waitForSelector('[data-testid="opening-stats"]');
+    assert(/Sicilian Defense/.test(await page.getByTestId('opening-stats').innerText()), 'the game counts once its side is known');
+    await page.getByTestId('op-node').first().click();
+    assert(/6\.h4/.test(await page.getByTestId('op-detail').innerText()), 'where theory was left is shown');
+    await page.screenshot({ path: `${SHOTS}/e3-progress-openings.png` });
+  });
+
   // ---------- Journey D ----------
   await step('D1 ranked: no assistance, other sections locked, resume after reload', async () => {
     await page.goto(URL + '#/ranked');
@@ -352,7 +424,7 @@ try {
     const orientation = await page.getByTestId('ranked-board').getAttribute('data-orientation');
     if (orientation === 'white') await play('ranked-board', ['e2e4']);
     await page.waitForFunction(() => document.querySelectorAll('[data-testid="movelist"] .ml-cell').length >= 1, null, { timeout: 60000 });
-    for (const forbidden of ['evalbar', 'evalgraph', 'hint', 'hint-mobile', 'take-back', 'takeback', 'takeback-mobile', 'coach-feedback', 'show-why', 'best-move', 'compare', 'demo', 'prediction', 'tree', 'explanation', 'board-stamp', 'engine-lines', 'move-card', 'opening-name', 'opening-explorer']) {
+    for (const forbidden of ['evalbar', 'evalgraph', 'hint', 'hint-mobile', 'take-back', 'takeback', 'takeback-mobile', 'coach-feedback', 'show-why', 'best-move', 'compare', 'demo', 'prediction', 'tree', 'explanation', 'board-stamp', 'engine-lines', 'move-card', 'opening-name', 'opening-explorer', 'review-opening', 'coach-opening-note', 'theory-branches']) {
       assert((await page.getByTestId(forbidden).count()) === 0, `${forbidden} must not exist during ranked play`);
     }
     assert((await page.locator('.cls-icon').count()) === 0, 'no classifications during ranked play');
@@ -360,6 +432,10 @@ try {
     await page.screenshot({ path: `${SHOTS}/d1-ranked.png` });
     await page.goto(URL + '#/library');
     assert(await page.locator('text=Ranked match in progress').isVisible(), 'other pages must be locked');
+    await page.goto(URL + '#/openings/explore/e2e4');
+    assert(await page.locator('text=Ranked match in progress').isVisible(), 'the Opening Explorer is locked during Ranked play');
+    assert((await page.getByTestId('opening-explorer').count()) === 0, 'no explorer during Ranked play');
+    assert((await page.getByTestId('nav-openings').count()) === 0, 'the Openings link is disabled');
     await page.goto(URL + '#/ranked');
     const before = await page.locator(cells).count();
     await page.reload();
@@ -429,6 +505,13 @@ try {
       const nb = await nextBtn.first().boundingBox();
       assert(nb && nb.y + nb.height <= h + 1, `replay controls below the fold at ${w}px`);
       await page.screenshot({ path: `${SHOTS}/m-review-${w}.png` });
+      for (const route of ['#/openings/explore/e2e4,c7c5', '#/openings/repertoire', '#/openings/practice', '#/profile']) {
+        await page.goto(URL + route);
+        await page.waitForTimeout(400);
+        const o = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+        assert(o <= 1, `${route} overflows by ${o}px at ${w}px`);
+      }
+      if (w === 390) await page.goto(URL + '#/openings/explore/e2e4,c7c5').then(() => page.waitForTimeout(400)).then(() => page.screenshot({ path: `${SHOTS}/m-explorer-390.png`, fullPage: true }));
     }
   });
 

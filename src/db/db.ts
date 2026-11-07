@@ -3,13 +3,13 @@ import type { AnalysisCache, AnalysisResult } from '../engine/controller';
 import type { LearningProfile } from '../coach/profile';
 import type { RivalModel } from '../rival/model';
 import type {
-  CoachAttempt, CoachSession, GameRecord, PredictionRecord, Preferences, RankedMatch, RankedProfile,
-  ReconstructionDraft, RivalAdaptation, StoredReview,
+  CoachAttempt, CoachSession, DrillRecord, GameRecord, PredictionRecord, Preferences, RankedMatch, RankedProfile,
+  ReconstructionDraft, RepertoireLine, RivalAdaptation, StoredReview,
 } from './types';
 import { DEFAULT_PREFS } from './types';
 
 export const DB_NAME = 'chess-of-life';
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 
 interface Schema extends DBSchema {
   games: { key: string; value: GameRecord; indexes: { byCreated: number; bySource: string } };
@@ -23,10 +23,12 @@ interface Schema extends DBSchema {
   rankedMatches: { key: string; value: RankedMatch; indexes: { byCreated: number } };
   rivalAdaptations: { key: string; value: RivalAdaptation; indexes: { byMatch: string } };
   prefs: { key: string; value: { key: string; value: unknown } };
+  repertoire: { key: string; value: RepertoireLine };
+  drills: { key: string; value: DrillRecord };
 }
 
-export type StoreName = 'games' | 'drafts' | 'reviews' | 'engineCache' | 'coachSessions' | 'coachAttempts' | 'predictions' | 'profiles' | 'rankedMatches' | 'rivalAdaptations' | 'prefs';
-export const STORES: StoreName[] = ['games', 'drafts', 'reviews', 'engineCache', 'coachSessions', 'coachAttempts', 'predictions', 'profiles', 'rankedMatches', 'rivalAdaptations', 'prefs'];
+export type StoreName = 'games' | 'drafts' | 'reviews' | 'engineCache' | 'coachSessions' | 'coachAttempts' | 'predictions' | 'profiles' | 'rankedMatches' | 'rivalAdaptations' | 'prefs' | 'repertoire' | 'drills';
+export const STORES: StoreName[] = ['games', 'drafts', 'reviews', 'engineCache', 'coachSessions', 'coachAttempts', 'predictions', 'profiles', 'rankedMatches', 'rivalAdaptations', 'prefs', 'repertoire', 'drills'];
 
 /**
  * Ordered schema migrations. migrations[v] upgrades a database from version v
@@ -48,6 +50,11 @@ const migrations: ((db: IDBPDatabase<Schema>) => void)[] = [
     db.createObjectStore('rankedMatches', { keyPath: 'id' }).createIndex('byCreated', 'createdAt');
     db.createObjectStore('rivalAdaptations', { keyPath: 'id' }).createIndex('byMatch', 'matchId');
     db.createObjectStore('prefs', { keyPath: 'key' });
+  },
+  // 1 -> 2: opening repertoire and practice records
+  (db) => {
+    db.createObjectStore('repertoire', { keyPath: 'id' });
+    db.createObjectStore('drills', { keyPath: 'id' });
   },
 ];
 
@@ -175,6 +182,7 @@ export async function importBackup(data: unknown, mode: 'merge' | 'replace' = 'm
   const report: ImportReport = { imported: {}, skipped: [] };
   const keyPath: Record<StoreName, string> = {
     games: 'id', drafts: 'id', reviews: 'gameId', engineCache: 'key', coachSessions: 'id', coachAttempts: 'id', predictions: 'id', profiles: 'id', rankedMatches: 'id', rivalAdaptations: 'id', prefs: 'key',
+    repertoire: 'id', drills: 'id',
   };
   const tx = db.transaction(STORES, 'readwrite');
   for (const s of STORES) {

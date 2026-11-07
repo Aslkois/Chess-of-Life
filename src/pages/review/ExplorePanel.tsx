@@ -7,10 +7,11 @@ import type { Classification } from '../../analysis/classify';
 import { formatScore, winPercentPov, type Score } from '../../engine/score';
 import { BranchMap, TreeOutline } from './Tree';
 import { IconCpu, IconPlay, IconTrash } from '../../ui/icons';
+import { continuations } from '../../analysis/openings';
 
 const moveLabel = (ply: number, san: string) => `${Math.ceil(ply / 2)}${ply % 2 ? '.' : '…'} ${san}`;
 
-export function ExplorePanel({ tree, cur, onSelect, classOf, evalOf, onChangeTree, onDelete, branchId, busy, canEngine, onEngineMove, onEngineContinue }: {
+export function ExplorePanel({ tree, cur, onSelect, classOf, evalOf, onChangeTree, onDelete, branchId, busy, canEngine, onEngineMove, onEngineContinue, onTheory, showTheory }: {
   tree: GameTree;
   cur: string;
   onSelect: (id: string) => void;
@@ -23,7 +24,13 @@ export function ExplorePanel({ tree, cur, onSelect, classOf, evalOf, onChangeTre
   canEngine: boolean;
   onEngineMove: () => void;
   onEngineContinue: (plies: number) => void;
+  /** add a catalogued continuation as a theory branch */
+  onTheory?: (uci: string) => void;
+  showTheory?: boolean;
 }) {
+  const node = tree.nodes[cur];
+  const theory = showTheory ? continuations(node.fen).slice(0, 6) : [];
+  const existing = new Set(node.children.map((c) => tree.nodes[c].uci));
   return (
     <div data-testid="explore-panel">
       <div className="section" style={{ paddingBottom: 'var(--s-2)' }}>
@@ -31,10 +38,20 @@ export function ExplorePanel({ tree, cur, onSelect, classOf, evalOf, onChangeTre
           <span><i style={{ background: 'var(--ivory)' }} />Played in the game</span>
           <span><i style={{ background: 'var(--branch)' }} />Your branches</span>
           <span><i style={{ background: 'repeating-linear-gradient(90deg, var(--engine) 0 4px, transparent 4px 7px)' }} />Engine lines</span>
+          {showTheory && <span><i style={{ background: 'var(--c-book)' }} />Catalogued theory</span>}
         </div>
       </div>
       <BranchMap tree={tree} current={cur} onSelect={onSelect} classOf={classOf} />
       <TreeOutline tree={tree} current={cur} onSelect={onSelect} classOf={classOf} />
+      {theory.length > 0 && onTheory && (
+        <div className="section" data-testid="theory-branches">
+          <h3 className="section-title">Catalogued theory from here</h3>
+          <div className="row" style={{ gap: 6 }}>
+            {theory.map((c) => <button key={c.uci} type="button" className="btn btn-sm" onClick={() => onTheory(c.uci)} title={c.opening ? c.opening.name : `${c.lines} catalogued line${c.lines === 1 ? '' : 's'}`} data-testid="theory-move">{c.san}{existing.has(c.uci) ? ' ✓' : ''}</button>)}
+          </div>
+          <p className="xs faint" style={{ marginTop: 'var(--s-2)', marginBottom: 0 }}>Adds the catalogued move as a theory branch. Moves already in the tree are followed instead.</p>
+        </div>
+      )}
       <div className="section">
         <h3 className="section-title">Continue from this position</h3>
         <div className="row">

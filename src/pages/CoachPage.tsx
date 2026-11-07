@@ -32,6 +32,7 @@ import { attemptsForSession, get, getMeta, setMeta } from '../db/db';
 import { REASON_TEXT } from '../chess/rules';
 import { winPercentPov } from '../engine/score';
 import { allowed } from '../modes';
+import { openingNote } from '../coach/openingNote';
 import { TeachPanel, type TeachView } from './coach/TeachPanel';
 
 type Phase =
@@ -78,6 +79,13 @@ export function CoachPage() {
   const [last, setLast] = useState<LastMove | null>(null);
   const [view, setView] = useState<TeachView>({ k: 'points' });
   const [focus, setFocus] = useState<number | null>(null);
+  /** post-move note about the opening (book, leaving or re-entering theory) */
+  const [openNote, setOpenNote] = useState<string | null>(null);
+  const noteFor = (s: CoachState, idx: number, fenAfter: string, san: string, by: 'you' | 'coach') => {
+    if (!allowed('coach', 'openingInfo') || idx > 40) return;
+    const n = openingNote([...s.fens.slice(0, idx + 1), fenAfter], [...s.session.moves.slice(0, idx), san], idx, by);
+    if (n) setOpenNote(n);
+  };
   const [setup, setSetup] = useState({ color: 'w' as 'w' | 'b' | 'random', prediction: true });
   const [finishedGameId, setFinishedGameId] = useState<string | null>(null);
   const [confirmResign, setConfirmResign] = useState(false);
@@ -150,6 +158,7 @@ export function CoachPage() {
     setFinishedGameId(null);
     setPhase({ k: 'idle' });
     setLast(null);
+    setOpenNote(null);
     resetTeaching();
     setSt(s);
   };
@@ -194,6 +203,7 @@ export function CoachPage() {
     }
     if (myGen !== gen.current || stRef.current?.pending?.attemptId !== attemptId) return;
     const { c, after } = res;
+    noteFor(s, idx, res.fenAfter, attempt.san, 'you');
     let cur = setAttemptEvaluation(stRef.current!, attemptId, c);
     setSt(cur);
     const teaching = gateTeaching(teachMove({ fenBefore: attempt.fen, uci: attempt.uci, c, cls: c.cls, afterPv: after.lines[0]?.pv ?? [], ply: idx }));
@@ -256,6 +266,7 @@ export function CoachPage() {
     setSt(next);
     setPhase({ k: 'idle' });
     setLast(null);
+    setOpenNote(null);
     resetTeaching();
     if (wasOver) await setMeta('activeCoach', next.session.id);
   };
@@ -329,6 +340,7 @@ export function CoachPage() {
     const idx = s.ucis.length;
     const ctx = liveCtx(s, uci);
     const next = commitCoachMove(s, uci, { cls: null, epl: null, provisional: true, depth: 0 });
+    noteFor(s, idx, next.fens[next.fens.length - 1], next.session.moves[next.session.moves.length - 1], 'coach');
     setSt(next);
     setPhase({ k: 'idle' });
     // the Coach's own moves are rated too – it is not always "Best"
@@ -579,6 +591,7 @@ export function CoachPage() {
                   <ol className="hint-list">{hintsShown.map((h, i) => <li key={i}>{h.kind !== 'position' && <span className="hint-kind">{h.kind === 'technique' ? 'Technique' : 'Review'}</span>}{h.text}</li>)}</ol>
                 </div>
               )}
+              {openNote && view.k === 'points' && <p className="xs dim section" style={{ margin: 0 }} data-testid="coach-opening-note">{openNote}</p>}
               <MoveStrip moves={moves} current={moves.length} showIcons />
               <MoveList moves={moves} current={moves.length} showIcons empty="The game starts when you or the Coach make the first move." style={{ maxHeight: 240 }} />
               <details className="disclose section hide-mobile" style={{ paddingTop: 'var(--s-2)', paddingBottom: 'var(--s-2)' }}>

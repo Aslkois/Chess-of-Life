@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useRoute, navigate } from './ui/router';
 import { useApp } from './ui/context';
-import { IconCoach, IconHome, IconLibrary, IconLock, IconMenu, IconProgress, IconRanked, IconReview, IconSettings } from './ui/icons';
+import { IconBook, IconCoach, IconHome, IconLibrary, IconLock, IconMenu, IconProgress, IconRanked, IconReview, IconSettings } from './ui/icons';
 import { ReviewChooser } from './ui/ReviewChooser';
 import { HomePage } from './pages/HomePage';
 import { ReconstructPage } from './pages/ReconstructPage';
@@ -12,13 +12,14 @@ import { CoachPage } from './pages/CoachPage';
 import { RankedPage } from './pages/RankedPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { SettingsPage } from './pages/SettingsPage';
+import { OpeningsPage } from './pages/openings/OpeningsPage';
 
-type NavId = 'home' | 'review' | 'coach' | 'ranked' | 'library' | 'profile' | 'settings';
+type NavId = 'home' | 'review' | 'coach' | 'ranked' | 'openings' | 'library' | 'profile' | 'settings';
 
 const SECTION_OF: Record<string, NavId> = {
-  home: 'home', review: 'review', reconstruct: 'review', import: 'review', coach: 'coach', ranked: 'ranked', library: 'library', profile: 'profile', settings: 'settings',
+  home: 'home', review: 'review', reconstruct: 'review', import: 'review', coach: 'coach', ranked: 'ranked', openings: 'openings', library: 'library', profile: 'profile', settings: 'settings',
 };
-const TITLES: Record<NavId, string> = { home: 'Chess of Life', review: 'Game Review', coach: 'Coach', ranked: 'Ranked Rival', library: 'Library', profile: 'Progress', settings: 'Settings' };
+const TITLES: Record<NavId, string> = { home: 'Chess of Life', review: 'Game Review', coach: 'Coach', ranked: 'Ranked Rival', openings: 'Openings', library: 'Library', profile: 'Progress', settings: 'Settings' };
 
 export function App() {
   const route = useRoute();
@@ -57,9 +58,10 @@ export function App() {
       case 'reconstruct': page = <ReconstructPage />; break;
       case 'import': page = <ImportPage />; break;
       case 'library': page = <LibraryPage />; break;
-      case 'review': page = <ReviewPage key={route.params[0]} gameId={route.params[0]} />; break;
+      case 'review': page = <ReviewPage key={route.params[0]} gameId={route.params[0]} ply={route.params[1]} />; break;
       case 'coach': page = <CoachPage />; break;
       case 'ranked': page = <RankedPage />; break;
+      case 'openings': page = <OpeningsPage params={route.params} />; break;
       case 'profile': page = <ProfilePage />; break;
       case 'settings': page = <SettingsPage />; break;
       default: page = <HomePage />;
@@ -96,6 +98,7 @@ export function App() {
         {item('review', 'Game Review', <IconReview />, openChooser)}
         {item('coach', 'Coach', <IconCoach />)}
         {item('ranked', 'Ranked Rival', <IconRanked />)}
+        {item('openings', 'Openings', <IconBook />)}
         <div className="nav-gap" />
         {item('library', 'Library', <IconLibrary />)}
         {item('profile', 'Progress', <IconProgress />)}

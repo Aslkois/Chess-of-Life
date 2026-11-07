@@ -78,6 +78,13 @@ export function SettingsPage() {
         </div>
       </section>
 
+      <section className="settings-group" aria-labelledby="s-you">
+        <header><h2 id="s-you">You in imported games</h2><p>Opening statistics only count games where your side is known.</p></header>
+        <div className="stack">
+          <PlayerNames names={prefs.playerNames} onChange={(playerNames) => updatePrefs({ playerNames })} />
+        </div>
+      </section>
+
       <section className="settings-group" aria-labelledby="s-engine">
         <header><h2 id="s-engine">Engine</h2><p>{engineStatus.name ?? 'Stockfish'}, running on this device.</p></header>
         <div className="stack">
@@ -111,7 +118,7 @@ export function SettingsPage() {
         <div className="small dim stack" style={{ gap: 'var(--s-2)' }}>
           <p>Chess of Life runs entirely on your device: no accounts, servers or tracking.</p>
           <p><b>Stockfish 17.1</b> (lite single-threaded WebAssembly build from stockfish.js), GPL-3.0. Licence text: <a href="./engine/COPYING.txt" target="_blank" rel="noreferrer">engine/COPYING.txt</a>.</p>
-          <p>Opening reference: {OPENING_COUNT} lines from lichess-org/chess-openings, CC0. Pieces: Cburnett set, CC BY-SA 3.0. Typeface: Bricolage Grotesque, SIL Open Font License. chess.js (BSD-2-Clause), React (MIT), idb (ISC), react-chessboard (MIT).</p>
+          <p>Opening reference: {OPENING_COUNT} lines from lichess-org/chess-openings, CC0 (public domain). No master-game database is bundled, because none is available under a licence that allows redistribution; the Explorer says so instead of showing numbers. Pieces: Cburnett set, CC BY-SA 3.0. Typeface: Bricolage Grotesque, SIL Open Font License. chess.js (BSD-2-Clause), React (MIT), idb (ISC), react-chessboard (MIT).</p>
           <p className="faint">Move ratings, accuracy and the Ranked rating use Chess of Life's own documented methods, not Chess.com or Lichess numbers.</p>
         </div>
       </section>
@@ -121,5 +128,18 @@ export function SettingsPage() {
         confirmLabel="Delete everything" cancelLabel="Keep my data" onCancel={() => setConfirmDelete(false)}
         onConfirm={async () => { await deleteAllData(); window.location.hash = '#/home'; window.location.reload(); }} />
     </div>
+  );
+}
+
+function PlayerNames({ names, onChange }: { names: string[]; onChange: (n: string[]) => void }) {
+  const [text, setText] = useState(names.join(', '));
+  useEffect(() => setText(names.join(', ')), [names]);
+  const commit = () => onChange(text.split(',').map((x) => x.trim()).filter(Boolean));
+  return (
+    <label className="field">
+      <span className="field-label">Names you play under</span>
+      <input className="input" value={text} onChange={(e) => setText(e.target.value)} onBlur={commit} onKeyDown={(e) => { if (e.key === 'Enter') commit(); }} placeholder="e.g. alice99, Alice Smith" data-testid="player-names" />
+      <span className="field-hint">Separate names with commas. When a PGN's White or Black matches one of them, that is taken as your side. You can also set the side in each game's review.</span>
+    </label>
   );
 }

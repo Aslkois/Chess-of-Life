@@ -121,18 +121,80 @@ the board:
 If no motif explains an evaluation change, the explanation says so and shows
 the engine line instead of inventing a reason.
 
-## 4. Opening reference (`analysis/openings.ts`, `scripts/build-openings.ts`)
+## 4. Openings (`analysis/openings.ts`, `services/openings.ts`, `openings/repertoire.ts`)
 
-The Lichess `chess-openings` dataset (CC0, 3,865 named lines, stored verbatim in
-`data/openings/`) is expanded into every position that occurs along any line,
-with the catalogued continuations from it. Positions are keyed by placement,
-side to move, castling rights and a *legal* en-passant square, so transpositions
-are recognised. "Book" is granted only for catalogued continuations.
+**Reference.** The Lichess `chess-openings` dataset (CC0-1.0, 3,865 named
+lines, stored verbatim in `data/openings/`) is expanded by
+`scripts/build-openings.ts` into every position that occurs along any line,
+with each catalogued continuation and the number of dataset lines through it.
+The build checks that no two lines end in the same position, so every named
+position has exactly one name. Positions are keyed by placement, side to
+move, castling rights and a *legal* en-passant square, so transpositions
+share a key. The test suite replays every dataset line and checks the name,
+ECO code and book status of every position on it.
+
+**Names.** A dataset name splits into *family* (before the colon),
+*variation* (first comma part) and *sub-variation* (the rest):
+"Sicilian Defense: Najdorf Variation, English Attack" → Sicilian Defense /
+Najdorf Variation / English Attack.
+
+**Tracking a game** (`trackOpening`): for each position, *in book* means the
+position is on a catalogued line. A move is a book move when it goes from a
+book position to a book position, whether or not the dataset lists that move
+order (transposition). The tracker records where theory was first left
+(`leftAt`), whether the game came back into it (`reentered`), and per
+position the **last known identity**: the deepest named position reached so
+far on that path. Identity is never inferred ahead of the moves: after
+1.e4 c5 2.Nf3 d6 3.d4 cxd4 4.Nxd4 Nf6 5.Nc3 the game is still "Sicilian
+Defense", and becomes "Najdorf Variation" only with 5...a6. Book
+classification (§2) uses the initial unbroken run in theory.
+
+**My Games** (`gamesAtPosition`): the user's saved games that reach a
+position (by key, so transpositions count), each game once, with the next
+move played and the result from the user's side. A game counts only when the
+user's side is established: Coach and Ranked games always; imported and
+reconstructed games when the user sets it in the review or on saving, or when
+a PGN player name matches one of the names in Settings (exactly one side).
+Games marked as someone else's are never counted. Coach games are a separate
+source, because takebacks and hints change their outcome.
+
+**Personal statistics** (`openingStats`): each counted game is filed under
+the deepest name it reached and appears once at each level of its path
+(family → variation → sub-variation), so a level's count is never more than
+its parent's. Per node: games, wins/draws/losses and score from the user's
+side, opening accuracy (mean accuracy of the user's own moves in the first 12
+moves, reviewed games only), early errors (the user's inaccuracies or worse
+in the same span), the moves where the games left theory and whether it was
+the user or the opponent, and the score per month. Filters: source, colour,
+period and time control.
+
+**Master games** are not included: no openly licensed master database is
+bundled, and the app does not contact online services. The Explorer shows an
+explicit "not included" state rather than numbers.
+
+**Repertoire and practice.** Saved lines (SAN from the start position) for
+one colour are merged into a tree keyed by position (transpositions share
+their prepared move; disagreeing lines are reported). In practice the
+training opponent plays one of the prepared replies, choosing more often
+those that lead to the user's weakest decisions; optionally it deviates with
+a catalogued move the repertoire does not cover. Wrong moves are not played
+and can be retried without limit; "Show me" reveals the move (that decision
+then counts as missed). Each decision is recorded per colour and position
+(attempts, first-try successes, misses, current streak, wrong moves played).
+Weakness = 2·misses − 1.5·streak − 0.25·first-try successes; positions with
+weakness > 0 are listed as "moves you tend to forget". Practice never creates
+games and never touches any statistic or rating.
+
+**Coach.** After a move (never before) the Coach notes when it reached a
+newly named catalogued position, left the catalogued theory (listing the
+catalogued moves there and saying that leaving theory is not a mistake in
+itself) or came back into it by transposition.
 
 ## 5. Variation tree (`chess/tree.ts`, `chess/pgn.ts`)
 
 * Immutable tree of nodes; each node stores its move, resulting FEN, source
-  (`historical`, `imported`, `user`, `engine`) and optional comment / NAGs /
+  (`historical`, `imported`, `user`, `engine`, `theory` for catalogued moves
+  added from the opening reference) and optional comment / NAGs /
   clock / branch name / note.
 * The original game is the chain of `historical` nodes: it cannot be deleted,
   renamed or overwritten. Playing an existing move follows it instead of

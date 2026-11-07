@@ -4,7 +4,7 @@ import { CLASS_INFO, type Classification } from '../../analysis/classify';
 import { ClassIcon } from '../../ui/ClassIcon';
 
 type ClassOf = (id: string) => { cls: Classification; provisional: boolean } | undefined;
-const SRC_COLOR: Record<string, string> = { historical: '#ede7d5', root: '#ede7d5', user: '#b49cf4', engine: '#8fb2d9', imported: '#d6c48f' };
+const SRC_COLOR: Record<string, string> = { historical: '#ede7d5', root: '#ede7d5', user: '#b49cf4', engine: '#8fb2d9', imported: '#d6c48f', theory: '#b08d66' };
 const NOTABLE: Classification[] = ['brilliant', 'great', 'miss', 'mistake', 'blunder'];
 
 /**
@@ -111,7 +111,7 @@ export function TreeOutline({ tree, current, onSelect, classOf }: { tree: GameTr
         {(white || forceNum) && <span className="tree-num">{Math.ceil(n.ply / 2)}{white ? '.' : '…'}</span>}
         {n.branchName && <span className="tree-name">{n.branchName}</span>}
         <button type="button" className={`tree-move src-${n.source}${n.id === current ? ' is-current' : ''}`} onClick={() => onSelect(n.id)} data-node={n.id} aria-current={n.id === current ? 'step' : undefined}
-          title={n.source === 'historical' ? 'Played in the game' : n.source === 'engine' ? 'Engine continuation' : n.source === 'imported' ? 'Variation from the PGN' : 'Your exploration'}>
+          title={n.source === 'historical' ? 'Played in the game' : n.source === 'engine' ? 'Engine continuation' : n.source === 'imported' ? 'Variation from the PGN' : n.source === 'theory' ? 'Catalogued theory' : 'Your exploration'}>
           {n.san}
           {c && NOTABLE.includes(c.cls) && <ClassIcon cls={c.cls} size={14} provisional={c.provisional} />}
         </button>

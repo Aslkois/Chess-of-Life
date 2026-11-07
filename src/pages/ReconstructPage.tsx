@@ -84,6 +84,7 @@ export function ReconstructPage() {
     const headers: Record<string, string> = { Event: d.headers.Event || 'Reconstructed game', Site: 'Over the board', Date: d.headers.Date || '????.??.??', White: d.headers.White || '?', Black: d.headers.Black || '?', Result: r };
     if (finalStatus.reason) headers.Termination = REASON_TEXT[finalStatus.reason];
     const g = gameFromMoves('manual', moves, headers, r, d.startFen);
+    if (d.playerColor !== undefined) g.playerColor = d.playerColor;
     await saveGame(g);
     await del('drafts', 'current');
     navigate(`review/${g.id}`);
@@ -140,6 +141,14 @@ export function ReconstructPage() {
                   <label className="field"><span className="field-label">Event</span><input className="input" value={d.headers.Event ?? ''} onChange={(e) => update({ headers: { ...d.headers, Event: e.target.value } })} placeholder="Club night, tournament…" /></label>
                   <label className="field"><span className="field-label">Date</span><input className="input" type="date" value={(d.headers.Date ?? '').replace(/\./g, '-')} onChange={(e) => update({ headers: { ...d.headers, Date: e.target.value.replace(/-/g, '.') } })} /></label>
                 </div>
+                <label className="field"><span className="field-label">You played</span>
+                  <select className="select" value={d.playerColor === undefined ? '' : d.playerColor === null ? 'none' : d.playerColor} onChange={(e) => update({ playerColor: e.target.value === '' ? undefined : e.target.value === 'none' ? null : (e.target.value as 'w' | 'b') })} data-testid="player-color">
+                    <option value="">Not specified</option>
+                    <option value="w">White</option>
+                    <option value="b">Black</option>
+                    <option value="none">Neither (someone else’s game)</option>
+                  </select>
+                </label>
                 <label className="field"><span className="field-label">Result</span>
                   {autoResult ? <input className="input" value={`${autoResult}, ${REASON_TEXT[finalStatus.reason!].toLowerCase()}`} disabled /> : (
                     <select className="select" value={result} onChange={(e) => setResult(e.target.value as GameResult)} data-testid="result-select">
