@@ -15,6 +15,10 @@ interface AppCtx {
   setActiveRanked: (id: string | null) => void;
   toast: (msg: string) => void;
   toasts: { id: number; msg: string }[];
+  /** the Game Review chooser (reconstruct or import) */
+  chooserOpen: boolean;
+  openChooser: () => void;
+  closeChooser: () => void;
 }
 
 const Ctx = createContext<AppCtx | null>(null);
@@ -25,6 +29,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [activeRanked, setAR] = useState<string | null>(null);
   const [rankedLoaded, setRankedLoaded] = useState(false);
   const [toasts, setToasts] = useState<{ id: number; msg: string }[]>([]);
+  const [chooserOpen, setChooserOpen] = useState(false);
+  const openChooser = useCallback(() => setChooserOpen(true), []);
+  const closeChooser = useCallback(() => setChooserOpen(false), []);
+  useEffect(() => {
+    document.documentElement.dataset.motion = prefs.motion === 'reduced' ? 'reduced' : 'system';
+  }, [prefs.motion]);
   useEffect(() => {
     getPrefs().then(setP).catch(() => {});
     getMeta<string | null>('activeRanked').then((v) => setAR(v ?? null)).catch(() => {}).finally(() => setRankedLoaded(true));
@@ -46,7 +56,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setToasts((t) => [...t, { id, msg }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3500);
   }, []);
-  return <Ctx.Provider value={{ prefs, updatePrefs, engineStatus, activeRanked, rankedLoaded, setActiveRanked, toast, toasts }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ prefs, updatePrefs, engineStatus, activeRanked, rankedLoaded, setActiveRanked, toast, toasts, chooserOpen, openChooser, closeChooser }}>{children}</Ctx.Provider>;
 }
 
 export function useApp(): AppCtx {

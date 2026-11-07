@@ -2,8 +2,12 @@ import { Chess } from 'chess.js';
 import { useEffect, useRef, useState } from 'react';
 import { Board, type BoardMove } from '../ui/Board';
 import { MoveList } from '../ui/MoveList';
-import { Modal, PlayerBar } from '../ui/bits';
-import { IconFlip } from '../ui/icons';
+import { MoveStrip } from '../ui/MoveStrip';
+import { PlayerStrip, Stage } from '../ui/stage';
+import { ConfirmDialog } from '../ui/Dialog';
+import { IconFlag, IconFlip, IconHandshake, IconLock, IconReview } from '../ui/icons';
+import { listMatches } from '../services/ranked';
+import { playerScore } from '../rival/ranked';
 import { useApp } from '../ui/context';
 import { navigate } from '../ui/router';
 import { get } from '../db/db';
@@ -43,6 +47,8 @@ export function RankedPage() {
   const [finished, setFinished] = useState<{ match: RankedMatch; gameId: string } | null>(null);
   const [review, setReview] = useState<GameReview | null>(null);
   const thinking = useRef<number>(-1);
+  const [recent, setRecent] = useState<RankedMatch[]>([]);
+  useEffect(() => { listMatches().then((m) => setRecent(m.filter((x) => x.status === 'finished').slice(0, 5))).catch(() => {}); }, [finished]);
   const finishing = useRef<string | null>(null);
 
   useEffect(() => { loadRankedProfile().then(setProfile); }, []);
@@ -198,23 +204,54 @@ export function RankedPage() {
   if (!rs || (rs.match.status !== 'active' && !finished)) {
     const level = profile ? rivalLevelFor(profile) : 6;
     return (
-      <div style={{ maxWidth: 720 }}>
-        <h1>Ranked Rival</h1>
-        <p className="muted">A competitive game against an opponent that plays to win. The Rival studies your completed Ranked games — only your own, unassisted decisions — and steers toward the positions you handle worst. During the game there is no help of any kind: no hints, takebacks, evaluations or move ratings. Analysis unlocks when the game ends.</p>
-        <div className="card stack">
-          <div className="row" style={{ gap: 28 }}>
-            <div className="stat"><b data-testid="ranked-rating">{profile ? Math.round(profile.rating.r) : '—'}</b><span>internal rating ± {profile ? Math.round(profile.rating.rd * 2) : '—'}</span></div>
-            <div className="stat"><b>{level}</b><span>Rival level (rated {levelRating(level)})</span></div>
-            <div className="stat"><b>{profile ? `${profile.wins}/${profile.draws}/${profile.losses}` : '—'}</b><span>W / D / L</span></div>
+      <div className="page page-narrow">
+        <header className="page-head">
+          <div>
+            <h1>Ranked Rival</h1>
+            <div className="lede">Play to win against an opponent that studies your finished Ranked games. There is no help of any kind during the game: no hints, takebacks, evaluations or move ratings. Analysis opens when the game ends.</div>
           </div>
-          <label className="field">Time control
-            <select value={tcId} onChange={(e) => setTcId(e.target.value)} data-testid="time-control">{TIME_CONTROLS.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}</select>
-          </label>
-          <div className="row"><span style={{ width: 120 }}>Your colour</span>
-            <div className="segmented">{(['w', 'b', 'random'] as const).map((c) => <button key={c} className={color === c ? 'on' : ''} onClick={() => setColor(c)}>{c === 'w' ? 'White' : c === 'b' ? 'Black' : 'Random'}</button>)}</div>
-          </div>
-          <div className="faint small">The rating is Chess of Life’s own internal Glicko-2 rating against fixed Rival levels. It is not a FIDE or online-site rating. The Rival’s level is fixed when the game starts and never changes mid-game.</div>
-          <div><button className="btn primary" onClick={start} data-testid="start-ranked">Start Ranked game</button></div>
+        </header>
+        <div className="grid-2" style={{ alignItems: 'start' }}>
+          <section className="surface surface-pad stack" aria-labelledby="ranked-setup">
+            <h2 id="ranked-setup">New Ranked game</h2>
+            <div className="stats">
+              <div className="stat"><b data-testid="ranked-rating">{profile ? Math.round(profile.rating.r) : '–'}</b><span>your rating, ±{profile ? Math.round(profile.rating.rd * 2) : '–'}</span></div>
+              <div className="stat"><b>{level}</b><span>Rival level (rated {levelRating(level)})</span></div>
+              <div className="stat"><b className="num">{profile ? `${profile.wins}–${profile.draws}–${profile.losses}` : '–'}</b><span>wins, draws, losses</span></div>
+            </div>
+            <div className="field">
+              <span className="field-label">Time control</span>
+              <div className="seg" role="group" aria-label="Time control" style={{ flexWrap: 'wrap' }} data-testid="time-control">
+                {TIME_CONTROLS.map((t) => <button key={t.id} type="button" aria-pressed={tcId === t.id} onClick={() => setTcId(t.id)} data-tc={t.id}>{t.id === 'untimed' ? 'Untimed' : t.id.replace('+', ' + ')}</button>)}
+              </div>
+              <span className="field-hint">{TIME_CONTROLS.find((t) => t.id === tcId)?.label}. Minutes per side plus seconds added after each move.</span>
+            </div>
+            <div className="field">
+              <span className="field-label">Your colour</span>
+              <div className="seg" role="group" aria-label="Your colour">
+                {(['w', 'b', 'random'] as const).map((c) => <button key={c} type="button" aria-pressed={color === c} onClick={() => setColor(c)}>{c === 'w' ? 'White' : c === 'b' ? 'Black' : 'Random'}</button>)}
+              </div>
+            </div>
+            <p className="xs faint" style={{ margin: 0 }}>The rating is Chess of Life's own Glicko-2 scale against fixed Rival levels, not a FIDE or online-site rating. The Rival's level is fixed for the whole game.</p>
+            <div><button type="button" className="btn btn-primary btn-lg" onClick={start} data-testid="start-ranked">Start Ranked game</button></div>
+          </section>
+          <section className="surface" aria-labelledby="ranked-recent">
+            <h2 id="ranked-recent" className="section-title" style={{ padding: 'var(--s-4) var(--s-4) 0' }}>Recent Ranked games</h2>
+            {recent.length === 0 ? <div className="ml-empty">No Ranked games yet. Your first result sets your rating in motion.</div> : (
+              <div className="side-list">
+                {recent.map((m) => {
+                  const sc = playerScore(m);
+                  const d = m.ratingAfter && m.ratingBefore ? m.ratingAfter.r - m.ratingBefore.r : null;
+                  return (
+                    <a key={m.id} href={m.gameId ? `#/review/${m.gameId}` : '#/profile'}>
+                      <span className="title">{sc === 1 ? 'Win' : sc === 0 ? 'Loss' : 'Draw'} as {m.playerColor === 'w' ? 'White' : 'Black'}<span className="sub">Rival level {m.rivalLevel}{m.reason ? `, ${REASON_TEXT[m.reason].toLowerCase()}` : ''}</span></span>
+                      <span className="meta num" style={{ color: d === null ? undefined : d >= 0 ? 'var(--ok)' : '#f0857f' }}>{d === null ? '' : `${d >= 0 ? '+' : ''}${d.toFixed(0)}`}</span>
+                    </a>
+                  );
+                })}
+              </div>
+            )}
+          </section>
         </div>
       </div>
     );
@@ -228,65 +265,92 @@ export function RankedPage() {
   const status = gameStatus(rs.fens);
   const lastUci = m.ucis[m.ucis.length - 1];
   const top = orientation === 'white' ? 'b' : 'w';
-  const names: Record<'w' | 'b', string> = { [player]: 'You', [rival]: `Rival · level ${m.rivalLevel}` } as Record<'w' | 'b', string>;
+  const names: Record<'w' | 'b', string> = { [player]: 'You', [rival]: `Rival, level ${m.rivalLevel}` } as Record<'w' | 'b', string>;
   const clockOf = (c: 'w' | 'b') => (isTimed(rs.clock) ? remainingMs(rs.clock, c, now) : undefined);
+  const turn = new Chess(fen).turn();
   const delta = finished?.match.ratingAfter && finished.match.ratingBefore ? finished.match.ratingAfter.r - finished.match.ratingBefore.r : null;
+  const sc = playerScore(m);
+  const tcText = m.timeControl.initial ? `${m.timeControl.initial / 60} + ${m.timeControl.increment}` : 'Untimed';
+  const moves = m.moves.map((san) => ({ san }));
+  const strip = (c: 'w' | 'b') => <PlayerStrip name={names[c]} color={c} fen={fen} clockMs={clockOf(c)} running={active && rs.clock.running === c} isTurn={active && turn === c} />;
+  const askResign = () => (prefs.confirmResign ? setConfirmResign(true) : resign());
 
   return (
-    <div className={active ? 'ranked-focus' : ''}>
-      <div className="row between" style={{ marginBottom: 10 }}>
-        <h1 style={{ margin: 0 }}>{active ? 'Ranked game' : 'Ranked game — finished'}</h1>
-        {active && <span className="pill warn" data-testid="ranked-live">No assistance · {m.timeControl.initial ? `${m.timeControl.initial / 60}+${m.timeControl.increment}` : 'untimed'}</span>}
-      </div>
-      <div className="play">
-        <div className="board-col">
-          <PlayerBar name={names[top]} color={top} fen={fen} clockMs={clockOf(top)} running={active && rs.clock.running === top} />
-          <Board fen={fen} orientation={orientation} movable={active ? player : 'none'} onMove={onMove} lastMove={lastUci ? [lastUci.slice(0, 2), lastUci.slice(2, 4)] : null} id="ranked-board" />
-          <PlayerBar name={names[top === 'w' ? 'b' : 'w']} color={top === 'w' ? 'b' : 'w'} fen={fen} clockMs={clockOf(top === 'w' ? 'b' : 'w')} running={active && rs.clock.running === (top === 'w' ? 'b' : 'w')} />
-          <div className="controls">
-            <button className="btn icon" onClick={() => setOrientation(orientation === 'white' ? 'black' : 'white')} aria-label="Flip board"><IconFlip /></button>
-            {active && <>
-              <button className="btn" onClick={offerDraw} data-testid="offer-draw">Offer draw</button>
-              {status.claimable.map((c) => <button key={c} className="btn" onClick={() => claim(c)}>Claim draw ({c === 'fifty-move' ? '50-move rule' : 'threefold'})</button>)}
-              <span className="spacer" />
-              <button className="btn danger" onClick={() => (prefs.confirmResign ? setConfirmResign(true) : resign())} data-testid="resign">Resign</button>
-            </>}
-          </div>
-          {message && <div className="notice small">{message}</div>}
+    <div className="page">
+      <header className="page-head" style={{ marginBottom: 'var(--s-4)' }}>
+        <div>
+          <h1>{active ? 'Ranked game' : 'Ranked game finished'}</h1>
+          <div className="lede small row-nowrap">{active ? <><IconLock size={15} /> Assistance off. {tcText}.</> : `${tcText}.`}</div>
         </div>
-        <div className="side-col">
-          {finished && (
-            <div className="card stack" data-testid="ranked-result">
-              <h2 style={{ margin: 0 }}>{m.result === '1/2-1/2' ? 'Draw' : (m.result === '1-0') === (player === 'w') ? 'You won' : 'You lost'} · {m.result}</h2>
-              <div className="muted">{m.reason ? REASON_TEXT[m.reason] : ''}</div>
-              {delta !== null && <div>Rating {Math.round(finished.match.ratingBefore!.r)} → <b>{Math.round(finished.match.ratingAfter!.r)}</b> ({delta >= 0 ? '+' : ''}{delta.toFixed(1)}) · uncertainty ±{Math.round(finished.match.ratingAfter!.rd * 2)}</div>}
-              <div className="small muted">{review ? (review.status === 'complete' ? 'Post-game analysis complete. The Rival has updated its model of your play.' : `Post-game analysis ${Math.round((review.progress.done / Math.max(1, review.progress.total)) * 100)}%…`) : 'Post-game analysis starting…'}</div>
-              <div className="row">
-                <button className="btn primary" onClick={() => navigate(`review/${finished.gameId}`)} data-testid="ranked-review">Review & explore this game</button>
-                <button className="btn" onClick={() => { setRsRaw(null); rsRef.current = null; setFinished(null); }}>New Ranked game</button>
+        {active && <span className="sr-only" data-testid="ranked-live">Ranked game in progress</span>}
+      </header>
+      <div className="board-layout">
+        <Stage orientation={orientation} top={strip(top)} bottom={strip(top === 'w' ? 'b' : 'w')}
+          below={<div className="row board-tools hide-mobile"><button type="button" className="btn btn-sm btn-quiet" onClick={() => setOrientation(orientation === 'white' ? 'black' : 'white')}><IconFlip size={16} /> Flip</button></div>}>
+          {(size) => <Board fen={fen} orientation={orientation} size={size} movable={active ? player : 'none'} onMove={onMove} lastMove={lastUci ? [lastUci.slice(0, 2), lastUci.slice(2, 4)] : null} id="ranked-board" />}
+        </Stage>
+        <div className="panel-slot">
+          <section className="panel" aria-label="Match">
+            {finished && (
+              <div className="result" data-testid="ranked-result">
+                <div className={`result-title tone-${sc === 1 ? 'win' : sc === 0 ? 'loss' : 'draw'}`}>{sc === 1 ? 'You won' : sc === 0 ? 'You lost' : 'Draw'}</div>
+                <div className="dim">{m.result === '1/2-1/2' ? '½–½' : m.result}{m.reason ? `, ${REASON_TEXT[m.reason].toLowerCase()}` : ''}</div>
+                {delta !== null && (
+                  <div className="result-rating">
+                    <span className="num">{Math.round(finished.match.ratingBefore!.r)}</span>
+                    <span className="faint">→</span>
+                    <b className="num">{Math.round(finished.match.ratingAfter!.r)}</b>
+                    <span className={`num delta ${delta >= 0 ? 'up' : 'down'}`}>{delta >= 0 ? '+' : ''}{delta.toFixed(1)}</span>
+                  </div>
+                )}
+                <p className="small dim" style={{ margin: 0 }}>Rating {Math.round(finished.match.ratingAfter?.r ?? 0)} ± {Math.round((finished.match.ratingAfter?.rd ?? 0) * 2)}. {review ? (review.status === 'complete' ? 'Analysis complete; the Rival has updated its model of your play.' : `Analysing the game: ${Math.round((review.progress.done / Math.max(1, review.progress.total)) * 100)}%.`) : 'Analysis starting.'}</p>
+                <div className="row">
+                  <button type="button" className="btn btn-primary" onClick={() => navigate(`review/${finished.gameId}`)} data-testid="ranked-review"><IconReview size={18} /> Review this game</button>
+                  <button type="button" className="btn" onClick={() => { setRsRaw(null); rsRef.current = null; setFinished(null); }}>New Ranked game</button>
+                </div>
+                {(m.strategy.notes.length > 0 || m.rivalNotes.some((n) => n.reasons.some((r) => r !== 'strongest practical move at this level'))) && (
+                  <details className="disclose">
+                    <summary>The Rival's plan this game</summary>
+                    <ul className="move-explain">
+                      {m.strategy.notes.map((n, i) => <li key={`s${i}`}>{n}</li>)}
+                      {m.rivalNotes.filter((n) => n.reasons.some((r) => r !== 'strongest practical move at this level')).slice(0, 8).map((n) => <li key={n.ply}>{Math.ceil((n.ply + 1) / 2)}{n.ply % 2 === 0 ? '.' : '…'} {n.san}: {n.reasons.join(', ')}</li>)}
+                    </ul>
+                  </details>
+                )}
               </div>
-              {m.strategy.notes.length > 0 && (
-                <div><h3>The Rival’s plan this game</h3><ul className="small" style={{ margin: 0, paddingLeft: 18 }}>{m.strategy.notes.map((n, i) => <li key={i}>{n}</li>)}</ul></div>
-              )}
-              {m.rivalNotes.some((n) => n.reasons.some((r) => r !== 'strongest practical move at this level')) && (
-                <div><h3>Where it showed</h3><ul className="small" style={{ margin: 0, paddingLeft: 18 }}>{m.rivalNotes.filter((n) => n.reasons.some((r) => r !== 'strongest practical move at this level')).slice(0, 8).map((n) => <li key={n.ply}>{Math.ceil((n.ply + 1) / 2)}{n.ply % 2 === 0 ? '.' : '…'} {n.san}: {n.reasons.join(', ')}</li>)}</ul></div>
-              )}
-            </div>
-          )}
-          <div className="card">
-            <div className="row between"><h3 style={{ margin: 0 }}>Moves</h3><span className="faint small">{active ? (status.inCheck ? 'Check' : new Chess(fen).turn() === player ? 'Your move' : 'Rival to move') : ''}</span></div>
-            <MoveList moves={m.moves.map((san) => ({ san }))} current={m.moves.length} />
-          </div>
-          {active && <div className="card small muted">Ranked rules: no hints, no takebacks, no evaluation bar, no move ratings, no engine lines, no prediction exercises, no coaching and no analysis until the game is over. Leaving this page does not pause the clock.</div>}
+            )}
+            {active && (
+              <div className={`status-line${turn === player ? '' : ' is-wait'}`} role="status" aria-live="polite">
+                <span className="status-dot" />
+                <span>{status.inCheck && turn === player ? 'Your move. You are in check.' : turn === player ? 'Your move' : 'The Rival is thinking'}</span>
+              </div>
+            )}
+            {message && <div className="notice" style={{ margin: 'var(--s-3) var(--s-4) 0' }} role="status">{message}</div>}
+            <MoveStrip moves={moves} current={moves.length} />
+            <MoveList moves={moves} current={moves.length} empty={active ? (player === 'w' ? 'You move first.' : 'The Rival moves first.') : 'No moves were played.'} />
+            {active && (
+              <div className="panel-foot hide-stacked">
+                <div className="row-nowrap">
+                  <button type="button" className="btn" onClick={offerDraw} data-testid="offer-draw" title="The Rival accepts only if it is not better"><IconHandshake size={18} /> Offer draw</button>
+                  {status.claimable.map((c) => <button key={c} type="button" className="btn" onClick={() => claim(c)}>Claim draw ({c === 'fifty-move' ? '50 moves' : 'repetition'})</button>)}
+                  <span className="spacer" />
+                  <button type="button" className="btn btn-danger" onClick={askResign} data-testid="resign"><IconFlag size={18} /> Resign</button>
+                </div>
+              </div>
+            )}
+          </section>
         </div>
       </div>
-      {confirmResign && (
-        <Modal onClose={() => setConfirmResign(false)}>
-          <h2>Resign this Ranked game?</h2>
-          <p className="muted">It counts as a loss for your rating.</p>
-          <div className="row"><span className="spacer" /><button className="btn" onClick={() => setConfirmResign(false)}>Cancel</button><button className="btn danger" onClick={resign} data-testid="confirm-resign">Resign</button></div>
-        </Modal>
+      {active && (
+        <div className="dock">
+          <button type="button" className="btn btn-lg" style={{ flex: 1 }} onClick={offerDraw} data-testid="offer-draw-mobile"><IconHandshake size={18} /> Draw</button>
+          {status.claimable.map((c) => <button key={c} type="button" className="btn btn-lg" style={{ flex: 1 }} onClick={() => claim(c)}>Claim</button>)}
+          <button type="button" className="btn btn-lg btn-icon" onClick={() => setOrientation(orientation === 'white' ? 'black' : 'white')} aria-label="Flip board"><IconFlip /></button>
+          <button type="button" className="btn btn-lg btn-danger" style={{ flex: 1 }} onClick={askResign} data-testid="resign-mobile"><IconFlag size={18} /> Resign</button>
+        </div>
       )}
+      <ConfirmDialog open={confirmResign} title="Resign this game?" body="It counts as a loss for your Ranked rating." danger testId="confirm-resign-dialog"
+        confirmLabel="Resign game" cancelLabel="Keep playing" onCancel={() => setConfirmResign(false)} onConfirm={resign} />
     </div>
   );
 }

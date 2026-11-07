@@ -14,16 +14,16 @@ export type Classification =
   | 'inaccuracy' | 'mistake' | 'miss' | 'blunder';
 
 export const CLASS_INFO: Record<Classification, { label: string; symbol: string; color: string; nag?: number }> = {
-  brilliant: { label: 'Brilliant', symbol: '!!', color: '#2ec4b6', nag: 3 },
-  great: { label: 'Great', symbol: '!', color: '#5b8def', nag: 1 },
-  best: { label: 'Best', symbol: '★', color: '#7fb069' },
-  excellent: { label: 'Excellent', symbol: '✓', color: '#9bc37a' },
-  good: { label: 'Good', symbol: '•', color: '#a3a89a' },
-  book: { label: 'Book', symbol: '📖', color: '#b08d57' },
-  inaccuracy: { label: 'Inaccuracy', symbol: '?!', color: '#e6c34a', nag: 6 },
-  mistake: { label: 'Mistake', symbol: '?', color: '#e8913a', nag: 2 },
-  miss: { label: 'Miss', symbol: '✕', color: '#d9636c', nag: 2 },
-  blunder: { label: 'Blunder', symbol: '??', color: '#e0474c', nag: 4 },
+  brilliant: { label: 'Brilliant', symbol: '!!', color: '#1fbfad', nag: 3 },
+  great: { label: 'Great', symbol: '!', color: '#5c93f0', nag: 1 },
+  best: { label: 'Best', symbol: '★', color: '#7fb34a' },
+  excellent: { label: 'Excellent', symbol: '✓', color: '#9ac35c' },
+  good: { label: 'Good', symbol: '•', color: '#93a88b' },
+  book: { label: 'Book', symbol: '📖', color: '#b08d66' },
+  inaccuracy: { label: 'Inaccuracy', symbol: '?!', color: '#eec35a', nag: 6 },
+  mistake: { label: 'Mistake', symbol: '?', color: '#f09b48', nag: 2 },
+  miss: { label: 'Miss', symbol: '✕', color: '#ef7462', nag: 2 },
+  blunder: { label: 'Blunder', symbol: '??', color: '#e5443a', nag: 4 },
 };
 
 export const CLASS_ORDER: Classification[] = ['brilliant', 'great', 'best', 'excellent', 'good', 'book', 'inaccuracy', 'mistake', 'miss', 'blunder'];

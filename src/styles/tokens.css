@@ -1,0 +1,79 @@
+/*
+ * Chess of Life design tokens.
+ * Ivory marks "you are here" (selection, primary action, focus). Hue is
+ * reserved for meaning: move classifications, explored branches, engine lines.
+ */
+:root {
+  /* surfaces – evergreen ink, matching the wooden board */
+  --ink-0: #0e1412;          /* app background */
+  --ink-1: #141b18;          /* panels */
+  --ink-2: #1b2420;          /* raised controls, hover */
+  --ink-3: #24302b;          /* pressed, strong hover */
+  --line: #26312c;           /* hairlines */
+  --line-strong: #364540;    /* control borders */
+
+  /* text */
+  --ivory: #ede7d5;          /* primary text, selected state, primary action */
+  --ivory-ink: #141410;      /* text on ivory */
+  --text-2: #a8ac9f;         /* secondary */
+  --text-3: #737b73;         /* tertiary, hints */
+
+  /* meaning */
+  --branch: #b49cf4;         /* user explorations (Tree of Life) */
+  --engine: #8fb2d9;         /* engine-generated lines */
+  --imported: #d6c48f;       /* variations from a PGN */
+  --danger: #e5534b;
+  --ok: #8fbf63;
+  --warn: #e9be55;
+
+  /* move classifications */
+  --c-brilliant: #1fbfad;
+  --c-great: #5c93f0;
+  --c-best: #7fb34a;
+  --c-excellent: #9ac35c;
+  --c-good: #93a88b;
+  --c-book: #b08d66;
+  --c-inaccuracy: #eec35a;
+  --c-mistake: #f09b48;
+  --c-miss: #ef7462;
+  --c-blunder: #e5443a;
+
+  /* type: Bricolage Grotesque for display, system UI for interface text; scale ×1.25 */
+  --font-display: "Bricolage Grotesque Variable", "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+  --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14.5px;
+  --fs-lg: 18px;
+  --fs-xl: 22.5px;
+  --fs-2xl: 28px;
+  --fs-3xl: 35px;
+
+  /* spacing (4px grid) */
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 20px; --s-6: 24px; --s-8: 32px; --s-10: 40px;
+
+  /* radii: outer = 2 × inner */
+  --r-sm: 5px;
+  --r-md: 10px;
+  --r-lg: 16px;
+
+  /* motion */
+  --ease: cubic-bezier(.2, .7, .2, 1);
+  --ease-out-back: cubic-bezier(.3, 1.45, .5, 1);
+  --t-fast: 120ms;
+  --t-med: 200ms;
+
+  /* layout */
+  --rail-w: 224px;
+  --panel-w: 392px;
+  --tap: 44px;               /* minimum touch target */
+
+  color-scheme: dark;
+}
+
+@media (max-width: 1100px) {
+  :root { --rail-w: 76px; --panel-w: 340px; }
+}
+@media (min-width: 1500px) {
+  :root { --panel-w: 432px; }
+}
