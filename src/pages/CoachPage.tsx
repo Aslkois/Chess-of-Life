@@ -1,6 +1,9 @@
 import { Chess } from 'chess.js';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Board, TONE_COLOR, type BoardMove } from '../ui/Board';
+import { useEffect, useRef, useState } from 'react';
+import { Board, PlanToggle, TONE_COLOR, type BoardMove } from '../ui/Board';
+import { addPremove, takePremove, type Premove } from '../chess/premove';
+import { sleep, thinkTime } from '../engine/pacing';
+import { isBookMove, isBookPosition } from '../analysis/openings';
 import { MoveList } from '../ui/MoveList';
 import { MoveStrip } from '../ui/MoveStrip';
 import { Meter } from '../ui/bits';
@@ -18,7 +21,8 @@ import { mulberry32, seedFrom } from '../util/rng';
 import { CLASS_INFO, moveAccuracy, type Classification } from '../analysis/classify';
 import { analyzeMove } from '../analysis/motifs';
 import { classifyLive } from '../coach/live';
-import { buildHints, hintAt, type Hint } from '../coach/hints';
+import { buildHintPlan, nextStage, progressFor, MAX_STAGE, type HintPlan, type HintProgress } from '../coach/hints';
+import { positionKey } from '../chess/positionKey';
 import { teachMove, isNotable, type Mark, type Teaching } from '../coach/teach';
 import { assessTeachingValue, gradePrediction, type PredictionResult } from '../coach/prediction';
 import { focusAreas, isMastered, type LearningProfile } from '../coach/profile';
@@ -34,6 +38,7 @@ import { winPercentPov } from '../engine/score';
 import { allowed } from '../modes';
 import { openingNote } from '../coach/openingNote';
 import { TeachPanel, type TeachView } from './coach/TeachPanel';
+import { replayReducer, startReplay, tickMs, type ReplayAction, type ReplaySpeed } from '../coach/replay';
 
 type Phase =
   | { k: 'idle' }
@@ -73,8 +78,13 @@ export function CoachPage() {
   const [profile, setProfile] = useState<LearningProfile | null>(null);
   const profRef = useRef<LearningProfile | null>(null);
   const [phase, setPhase] = useState<Phase>({ k: 'idle' });
-  const [hintList, setHintList] = useState<{ fen: string; hints: Hint[] } | null>(null);
-  const [shownHints, setShownHints] = useState(0);
+  const [hintPlan, setHintPlan] = useState<HintPlan | null>(null);
+  const [hintProg, setHintProg] = useState<HintProgress | null>(null);
+  const hintBusy = useRef(false);
+  const [premoves, setPremovesRaw] = useState<Premove[]>([]);
+  const premoveRef = useRef<Premove[]>([]);
+  const setPremoves = (q: Premove[]) => { premoveRef.current = q; setPremovesRaw(q); };
+  const [premoveNote, setPremoveNote] = useState<string | null>(null);
   const [orientation, setOrientation] = useState<'white' | 'black'>('white');
   const [last, setLast] = useState<LastMove | null>(null);
   const [view, setView] = useState<TeachView>({ k: 'points' });
@@ -94,6 +104,8 @@ export function CoachPage() {
   const winBestByPly = useRef<Map<number, number>>(new Map());
   const predictionCtx = useRef<{ fen: string; analysis: AnalysisResult; category: string; chosen: Candidate } | null>(null);
   const abort = useRef(new AbortController());
+  /** the chosen demonstration speed is kept for the next demonstration */
+  const demoSpeed = useRef<ReplaySpeed>(1);
   /** bumped by Take back: any engine work started before it is discarded */
   const gen = useRef(0);
 
@@ -137,7 +149,7 @@ export function CoachPage() {
     const fen = currentFen(st);
     if (new Chess(fen).turn() === st.session.playerColor) {
       void analysisFor(fen);
-      if (hintList?.fen !== fen) { setHintList(null); setShownHints(0); }
+      if (hintProg && hintProg.key !== positionKey(fen)) { setHintProg(null); setHintPlan(null); }
       return;
     }
     if (phase.k === 'idle' || phase.k === 'lesson') void coachTurn();
@@ -159,6 +171,7 @@ export function CoachPage() {
     setPhase({ k: 'idle' });
     setLast(null);
     setOpenNote(null);
+    setPremoves([]);
     resetTeaching();
     setSt(s);
   };
@@ -261,6 +274,7 @@ export function CoachPage() {
     if (!s || !canRewind(s)) return;
     cancelWork();
     const wasOver = s.session.status === 'finished';
+    setPremoves([]);
     const next = s.pending ? takeBack(s) : rewind(s);
     for (const k of [...winBestByPly.current.keys()]) if (k >= next.ucis.length) winBestByPly.current.delete(k);
     setSt(next);
@@ -284,16 +298,45 @@ export function CoachPage() {
     if (next.session.status === 'finished') await endGame(next);
   };
 
+  // ---------- premoves ----------
+  const addQueued = (m: Premove): boolean => {
+    const s = stRef.current;
+    if (!s || !prefs.premoves) return false;
+    const fen = s.pending ? s.pending.fenAfter : currentFen(s);
+    const q = addPremove(fen, premoveRef.current, m, s.session.playerColor, prefs.multiPremoves);
+    if (!q) return false;
+    setPremoves(q);
+    setPremoveNote(null);
+    return true;
+  };
+  const cancelPremoves = () => { if (premoveRef.current.length) { setPremoves([]); setPremoveNote('Premoves cancelled.'); } };
+  // play the next premove as soon as it is the player's turn again
+  useEffect(() => {
+    const s = stRef.current;
+    if (!s || !premoveRef.current.length || !isPlayerTurn(s) || (phase.k !== 'idle' && phase.k !== 'lesson') || view.k !== 'points') return;
+    const r = takePremove(currentFen(s), premoveRef.current);
+    if (!r) return;
+    if ('cancelled' in r) { setPremoves([]); setPremoveNote('Premove cancelled: it is not legal in this position.'); return; }
+    setPremoves(r.rest);
+    onPlayerMove({ from: r.uci.slice(0, 2), to: r.uci.slice(2, 4), promotion: r.uci[4] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [st?.fens.length, st?.pending, phase.k, premoves, view.k]);
+  useEffect(() => { if (!prefs.premoves) setPremoves([]); }, [prefs.premoves]);
+
   // ---------- demonstrations ----------
   const seeDemo = () => { const s = stRef.current; if (s && last) setSt(markDemoSeen(s, last.attemptId)); };
-  const showWhy = () => { if (!last?.teaching.why) return; seeDemo(); setFocus(null); setView({ k: 'demo', line: last.teaching.why, step: 0, playing: true }); };
-  const showBest = () => { if (!last?.teaching.best) return; seeDemo(); setFocus(null); setView({ k: 'demo', line: last.teaching.best, step: 0, playing: true }); };
+  const showWhy = () => { if (!last?.teaching.why) return; seeDemo(); setFocus(null); setView({ k: 'demo', line: last.teaching.why, rp: startReplay(last.teaching.why.steps.length, demoSpeed.current) }); };
+  const showBest = () => { if (!last?.teaching.best) return; seeDemo(); setFocus(null); setView({ k: 'demo', line: last.teaching.best, rp: startReplay(last.teaching.best.steps.length, demoSpeed.current) }); };
   const showCompare = () => { if (!last?.teaching.compare) return; seeDemo(); setFocus(null); setView({ k: 'compare', cmp: last.teaching.compare }); };
-  const stepTo = (n: number) => setView((v) => (v.k === 'demo' ? { ...v, step: Math.max(0, Math.min(v.line.steps.length, n)), playing: false } : v));
+  const replay = (a: ReplayAction) => setView((v) => {
+    if (v.k !== 'demo') return v;
+    const rp = replayReducer(v.rp, a);
+    demoSpeed.current = rp.speed;
+    return { ...v, rp };
+  });
   useEffect(() => {
-    if (view.k !== 'demo' || !view.playing) return;
-    if (view.step >= view.line.steps.length) { setView({ ...view, playing: false }); return; }
-    const t = setTimeout(() => setView((v) => (v.k === 'demo' && v.playing ? { ...v, step: v.step + 1 } : v)), view.step === 0 ? 700 : 1100);
+    if (view.k !== 'demo' || !view.rp.playing) return;
+    const t = setTimeout(() => replay({ t: 'tick' }), tickMs(view.rp));
     return () => clearTimeout(t);
   }, [view]);
   useEffect(() => { if (view.k !== 'points' && window.innerWidth <= 760) window.scrollTo({ top: 0 }); }, [view.k]);
@@ -305,6 +348,7 @@ export function CoachPage() {
     const myGen = gen.current;
     const fen = currentFen(s);
     setPhase({ k: 'coach-thinking' });
+    const t0 = performance.now();
     try {
       const prof = strengthFor(s.session.coachLevel);
       const focusSkills = new Set((profRef.current ? focusAreas(profRef.current, 3) : []).map((f) => f.skill));
@@ -329,6 +373,13 @@ export function CoachPage() {
         setPhase({ k: 'predict' });
         return;
       }
+      // a natural pause before the move (only the part the engine did not already use)
+      const pace = thinkTime({
+        fen, analysis, uci: move.uci, book: isBookPosition(fen) && isBookMove(fen, move.uci), level: cur.session.coachLevel,
+        engineMs: performance.now() - t0, speed: prefs.opponentSpeed, rand: mulberry32(seedFrom(cur.session.seed, cur.ucis.length) ^ 0x5bd1),
+      });
+      await sleep(pace.waitMs, abort.current.signal);
+      if (myGen !== gen.current || currentFen(stRef.current!) !== fen || stRef.current!.pending) return;
       await playCoachMove(move.uci);
     } catch (e) {
       if (!(e instanceof AbortedError) && myGen === gen.current) setPhase({ k: 'idle' });
@@ -385,26 +436,30 @@ export function CoachPage() {
     setPhase({ k: 'lesson', result });
   };
 
-  // ---------- hints (unlimited) ----------
+  // ---------- hints: three stages per position ----------
   const requestHint = async () => {
     const s = stRef.current;
-    if (!s || !isPlayerTurn(s)) return;
+    if (!s || !isPlayerTurn(s) || hintBusy.current) return;
     const fen = currentFen(s);
-    let list = hintList?.fen === fen ? hintList.hints : null;
-    if (!list) {
-      const a = await analysisFor(fen);
-      const lastUci = s.ucis[s.ucis.length - 1];
-      const lastMove = lastUci ? { san: s.session.moves[s.session.moves.length - 1], from: lastUci.slice(0, 2), to: lastUci.slice(2, 4) } : undefined;
-      list = buildHints(fen, a, { lastMove, ply: s.ucis.length });
-      setHintList({ fen, hints: list });
-    }
-    if (currentFen(stRef.current!) !== fen) return;
-    setSt(recordHint(stRef.current!));
-    setShownHints((n) => n + 1);
+    const prog = progressFor(hintProg, fen);
+    if (prog.stage >= MAX_STAGE) return;
+    hintBusy.current = true;
+    try {
+      let plan = hintPlan?.key === prog.key ? hintPlan : null;
+      if (!plan) {
+        plan = buildHintPlan(fen, await analysisFor(fen));
+        if (!plan) return;
+      }
+      if (currentFen(stRef.current!) !== fen || !isPlayerTurn(stRef.current!)) return;
+      setHintPlan(plan);
+      setSt(recordHint(stRef.current!));
+      setHintProg(nextStage(prog));
+    } catch { /* the engine could not analyse: no hint */ } finally { hintBusy.current = false; }
   };
 
   // ---------- end ----------
   const endGame = async (s: CoachState) => {
+    setPremoves([]);
     const accs = s.attempts.filter((a) => a.independent && a.epl !== null).map((a) => moveAccuracy(a.epl!));
     const acc = accs.length ? accs.reduce((x, y) => x + y, 0) / accs.length : null;
     const gid = await finishCoachGame(s, acc);
@@ -420,6 +475,7 @@ export function CoachPage() {
     if (!s) return;
     setConfirmResign(false);
     cancelWork();
+    setPremoves([]);
     const r = resignCoach(s);
     setSt(r);
     setPhase({ k: 'idle' });
@@ -428,12 +484,13 @@ export function CoachPage() {
     await endGame(r);
   };
 
-  const hintsShown = useMemo(() => (hintList ? Array.from({ length: shownHints }, (_, i) => hintAt(hintList.hints, i)) : []), [hintList, shownHints]);
 
   useKeys(view.k === 'demo' ? {
-    ArrowLeft: () => stepTo(view.step - 1), ArrowRight: () => stepTo(view.step + 1), Escape: () => resetTeaching(),
+    ArrowLeft: () => replay({ t: 'prev' }), ArrowRight: () => replay({ t: 'next' }), Home: () => replay({ t: 'first' }), End: () => replay({ t: 'last' }),
+    ' ': (e) => { e.preventDefault(); replay({ t: 'toggle' }); }, Escape: () => resetTeaching(),
   } : view.k === 'compare' ? { Escape: () => resetTeaching() } : {
     h: () => { void requestHint(); },
+    Escape: () => cancelPremoves(),
     f: () => setOrientation((o) => (o === 'white' ? 'black' : 'white')),
     Backspace: () => { void doTakeBack(); },
     u: () => { void doTakeBack(); },
@@ -448,7 +505,7 @@ export function CoachPage() {
         <header className="page-head">
           <div>
             <h1>Coach</h1>
-            <div className="lede">A real game against an opponent that wants you to improve. Every move is rated as you play. Mistakes come with a concrete explanation, a demonstration on the board and the better move if you ask for it. Take back any move, as often as you like; hints point at what to look for, never the move itself.</div>
+            <div className="lede">A real game against an opponent that wants you to improve. Every move is rated as you play. Mistakes come with a concrete explanation, a demonstration on the board and the better move if you ask for it. Take back any move, as often as you like. Hints come in three steps for each position: what to look for, which piece, and finally the best move.</div>
           </div>
         </header>
         <div className="grid-2" style={{ alignItems: 'start' }}>
@@ -483,7 +540,7 @@ export function CoachPage() {
   if (lastUci) lastMove = [lastUci.slice(0, 2), lastUci.slice(2, 4)];
   let frame: 'normal' | 'predict' | 'demo' = phase.k === 'predict' ? 'predict' : 'normal';
   if (view.k === 'demo') {
-    const stp = view.step > 0 ? view.line.steps[view.step - 1] : null;
+    const stp = view.rp.step > 0 ? view.line.steps[view.rp.step - 1] : null;
     boardFen = stp ? stp.fen : view.line.startFen;
     const mark = stp ? stp.mark : view.line.startMark;
     arrows = toArrows(mark); highlights = toSquares(mark);
@@ -501,6 +558,14 @@ export function CoachPage() {
     lastMove = [last.teaching.from, last.teaching.to];
   }
   const teachingOnBoard = boardFen !== gameFen || view.k !== 'points';
+  // hints for the current position (stage 2 highlights the piece, stage 3 shows the move)
+  const hintStage = hintProg && isPlayerTurn(st) && hintProg.key === positionKey(gameFen) ? hintProg.stage : 0;
+  const shownHints = hintPlan && hintStage ? hintPlan.stages.slice(0, hintStage) : [];
+  if (!teachingOnBoard && hintPlan && hintStage >= 2) {
+    const h = hintPlan.stages[hintStage - 1];
+    highlights = h.squares.map((sq) => [sq, hintStage === 3 ? TONE_COLOR.better : TONE_COLOR.concept] as [string, string]);
+    if (h.arrow) arrows = [[h.arrow[0], h.arrow[1], TONE_COLOR.better]];
+  }
 
   const player = st.session.playerColor;
   const coachColor = player === 'w' ? 'b' : 'w';
@@ -515,8 +580,10 @@ export function CoachPage() {
   const top = orientation === 'white' ? 'b' : 'w';
   const names = { [player]: 'You', [coachColor]: `Coach, level ${st.session.coachLevel}` } as Record<'w' | 'b', string>;
   const turn = new Chess(boardFen).turn();
-  const canHint = isPlayerTurn(st) && (phase.k === 'idle' || phase.k === 'lesson');
-  const hintTitle = over ? 'The game is over. Take back a move to keep playing.' : !isPlayerTurn(st) ? 'Hints are for your own move' : 'Get a hint (H)';
+  const allHints = hintStage >= MAX_STAGE;
+  const canHint = isPlayerTurn(st) && (phase.k === 'idle' || phase.k === 'lesson') && !allHints;
+  const hintTitle = over ? 'The game is over. Take back a move to keep playing.' : !isPlayerTurn(st) ? 'Hints are for your own move' : allHints ? 'All three hints for this position are shown' : `Hint ${hintStage + 1} of 3 (H): ${['strategic advice', 'which piece', 'the best move'][hintStage]}`;
+  const hintLabel = allHints ? 'All hints revealed' : hintStage ? `Hint ${hintStage + 1} of 3` : 'Hint';
   const canBack = canRewind(st);
   const backTitle = !canRewind(st) ? 'You have not made a move yet' : 'Take back your last move (Backspace). Unlimited.';
 
@@ -542,8 +609,11 @@ export function CoachPage() {
         <Stage orientation={orientation}
           top={<PlayerStrip name={names[top]} color={top} fen={boardFen} isTurn={!over && !teachingOnBoard && turn === top} />}
           bottom={<PlayerStrip name={names[top === 'w' ? 'b' : 'w']} color={top === 'w' ? 'b' : 'w'} fen={boardFen} isTurn={!over && !teachingOnBoard && turn !== top} />}
-          below={<div className="row board-tools hide-mobile"><button type="button" className="btn btn-sm btn-quiet" onClick={() => setOrientation(orientation === 'white' ? 'black' : 'white')} title="Flip board (F)"><IconFlip size={16} /> Flip</button></div>}>
-          {(size) => <Board fen={boardFen} orientation={orientation} size={size} movable={over ? 'none' : movable} onMove={onPlayerMove} lastMove={lastMove} arrows={arrows} highlights={highlights} frame={frame} id="coach-board" />}
+          below={<div className="row board-tools"><button type="button" className="btn btn-sm btn-quiet hide-mobile" onClick={() => setOrientation(orientation === 'white' ? 'black' : 'white')} title="Flip board (F)"><IconFlip size={16} /> Flip</button><PlanToggle />
+            {premoves.length > 0 && <span className="premove-chip" data-testid="premove-status"><i />Premove{premoves.length > 1 ? `s ${premoves.length}` : ''}: {premoves.map((m) => `${m.from}–${m.to}`).join(', ')} <button type="button" className="btn btn-sm btn-quiet" onClick={cancelPremoves} data-testid="cancel-premoves">Cancel (Esc)</button></span>}
+            {premoves.length === 0 && premoveNote && <span className="premove-chip" role="status">{premoveNote}</span>}</div>}>
+          {(size) => <Board fen={boardFen} orientation={orientation} size={size} movable={over ? 'none' : movable} onMove={onPlayerMove} lastMove={lastMove} arrows={arrows} highlights={highlights} frame={frame} id="coach-board"
+            premove={prefs.premoves && !over && !teachingOnBoard && phase.k !== 'predict' ? { color: player, queue: premoves, onAdd: addQueued, onCancel: cancelPremoves } : null} />}
         </Stage>
         <div className="panel-slot">
           <section className="panel" aria-label="Lesson">
@@ -567,7 +637,7 @@ export function CoachPage() {
                 <TeachPanel teaching={last.teaching} cls={last.cls} provisional={last.provisional} blocking={phase.k === 'feedback' && last.blocking}
                   view={view} focus={focus} onFocus={setFocus} onShowWhy={showWhy} onBest={showBest} onCompare={showCompare}
                   onRetry={() => void doTakeBack()} onContinue={doContinue} onDismiss={() => { setLast(null); resetTeaching(); }}
-                  onStep={stepTo} onTogglePlay={() => setView((v) => (v.k === 'demo' ? { ...v, playing: !v.playing, step: !v.playing && v.step >= v.line.steps.length ? 0 : v.step } : v))}
+                  onReplay={replay}
                   onReturn={resetTeaching} />
               )}
               {phase.k === 'predict' && (
@@ -585,10 +655,11 @@ export function CoachPage() {
                   <button type="button" className="btn btn-sm" onClick={() => setPhase({ k: 'idle' })}>Got it</button>
                 </div>
               )}
-              {shownHints > 0 && isPlayerTurn(st) && (
+              {shownHints.length > 0 && (
                 <div className="section" data-testid="hints" aria-live="polite">
-                  <h3 className="section-title">Hints for this move</h3>
-                  <ol className="hint-list">{hintsShown.map((h, i) => <li key={i}>{h.kind !== 'position' && <span className="hint-kind">{h.kind === 'technique' ? 'Technique' : 'Review'}</span>}{h.text}</li>)}</ol>
+                  <h3 className="section-title">Hints for this position</h3>
+                  <ol className="hint-list">{shownHints.map((h) => <li key={h.stage} data-testid={`hint-stage-${h.stage}`}><span className="hint-kind">{h.title}</span>{h.text}</li>)}</ol>
+                  {allHints && <p className="xs faint" style={{ margin: 'var(--s-2) 0 0' }} data-testid="hints-done">All hints revealed. Hints start again in the next position.</p>}
                 </div>
               )}
               {openNote && view.k === 'points' && <p className="xs dim section" style={{ margin: 0 }} data-testid="coach-opening-note">{openNote}</p>}
@@ -606,7 +677,7 @@ export function CoachPage() {
             </div>
             <div className="panel-foot hide-stacked">
               <div className="row-nowrap">
-                <button type="button" className="btn" onClick={requestHint} disabled={!canHint} title={hintTitle} data-testid="hint"><IconBulb size={18} /> Hint{shownHints > 0 && <span className="faint small">{shownHints} used</span>}</button>
+                <button type="button" className="btn" onClick={requestHint} disabled={!canHint} title={hintTitle} data-testid="hint"><IconBulb size={18} /> {hintLabel}</button>
                 <button type="button" className="btn" onClick={() => void doTakeBack()} disabled={!canBack} title={backTitle} data-testid="takeback"><IconUndo size={18} /> Take back</button>
                 <span className="spacer" />
                 {!over && <button type="button" className="btn btn-icon btn-danger" onClick={() => setConfirmResign(true)} aria-label="Resign" title="Resign this game"><IconFlag size={18} /></button>}
@@ -616,7 +687,7 @@ export function CoachPage() {
         </div>
       </div>
       <div className="dock">
-        <button type="button" className="btn btn-lg" style={{ flex: 1 }} onClick={requestHint} disabled={!canHint} title={hintTitle} data-testid="hint-mobile"><IconBulb size={18} /> Hint</button>
+        <button type="button" className="btn btn-lg" style={{ flex: 1 }} onClick={requestHint} disabled={!canHint} title={hintTitle} data-testid="hint-mobile"><IconBulb size={18} /> {allHints ? 'All revealed' : hintStage ? `Hint ${hintStage + 1}/3` : 'Hint'}</button>
         <button type="button" className="btn btn-lg" style={{ flex: 1 }} onClick={() => void doTakeBack()} disabled={!canBack} title={backTitle} data-testid="takeback-mobile"><IconUndo size={18} /> Take back</button>
         <button type="button" className="btn btn-lg btn-icon" onClick={() => setOrientation(orientation === 'white' ? 'black' : 'white')} aria-label="Flip board"><IconFlip /></button>
         {!over && <button type="button" className="btn btn-lg btn-icon btn-danger" onClick={() => setConfirmResign(true)} aria-label="Resign"><IconFlag /></button>}

@@ -62,7 +62,7 @@ try {
   await page.goto(URL);
   await page.waitForSelector('h1');
   await page.goto(URL + '#/settings');
-  await page.getByRole('button', { name: 'Fast', exact: true }).click();
+  await page.getByRole('group', { name: 'Analysis quality' }).getByRole('button', { name: 'Fast', exact: true }).click();
 
   // ---------- Game Review chooser ----------
   await step('V1 chooser modal: focus, arrow keys, Tab containment, Escape, focus return', async () => {
@@ -276,12 +276,30 @@ try {
     await page.waitForSelector('[data-testid="coach-board"]');
     await play('coach-board', ['e2e3']);
     await page.waitForFunction(() => /Your move/.test(document.querySelector('[data-testid="coach-status"]')?.textContent || ''), null, { timeout: 60000 });
-    // hints are unlimited: ask for more than the old limit of three
-    for (let i = 0; i < 6; i++) { await vis('hint').click(); await page.waitForTimeout(150); }
-    await page.waitForFunction(() => document.querySelectorAll('[data-testid="hints"] li').length === 6, null, { timeout: 30000 });
-    assert(await vis('hint').isEnabled(), 'the hint button stays available');
-    assert(/6 used/.test(await vis('hint').innerText()), 'the hint button shows how many were used');
+    // three hint stages for this position, then no more
+    await vis('hint').click();
+    await page.waitForSelector('[data-testid="hint-stage-1"]', { timeout: 30000 });
+    assert(/Hint 2 of 3/.test(await vis('hint').innerText()), 'the button names the next stage');
+    await vis('hint').click();
+    await page.waitForSelector('[data-testid="hint-stage-2"]');
+    const pieceSq = (await page.getByTestId('hint-stage-2').innerText()).match(/on ([a-h][1-8])/)[1];
+    await vis('hint').click();
+    await page.waitForSelector('[data-testid="hint-stage-3"]');
+    const s3 = await page.getByTestId('hint-stage-3').innerText();
+    assert(/Best move/.test(s3) && /Engine line/.test(s3), `stage 3 shows the move and why: ${s3}`);
+    assert(await vis('hint').isDisabled(), 'no fourth hint');
+    assert(/All hints revealed/.test(await vis('hint').innerText()), 'All hints revealed');
+    assert((await page.locator('[data-testid="hints"] li').count()) === 3, 'exactly three stages');
     await page.screenshot({ path: `${SHOTS}/c1-coach-hints.png` });
+    // play the revealed best move: hints start again in the next position
+    const hintFen = await page.getByTestId('coach-board').getAttribute('data-fen');
+    const best = new Chess(hintFen).moves({ verbose: true }).find((m) => m.from === pieceSq && s3.includes(m.san));
+    assert(best, 'the revealed move is legal and uses the hinted piece');
+    await play('coach-board', [best.from + best.to + (best.promotion ?? '')]);
+    await page.waitForFunction(() => /Your move/.test(document.querySelector('[data-testid="coach-status"]')?.textContent || '') || document.querySelector('[data-testid="coach-feedback"] [data-testid="continue"]'), null, { timeout: 60000 });
+    if (await page.getByTestId('continue').count()) await page.getByTestId('continue').click();
+    await page.waitForFunction(() => /Your move/.test(document.querySelector('[data-testid="coach-status"]')?.textContent || ''), null, { timeout: 60000 });
+    assert(/^\s*Hint\s*$/.test(await vis('hint').innerText()) && await vis('hint').isEnabled(), 'hints reset in the new position');
     await coachUntilFeedback();
     const fbText = await page.getByTestId('coach-feedback').innerText();
     assert(/Blunder|Mistake|Miss|Inaccuracy/.test(fbText), 'feedback should name the rating');
@@ -294,8 +312,22 @@ try {
       await page.getByTestId('show-why').click();
       await page.waitForSelector('[data-testid="demo"]');
       await page.getByTestId('demo-next').click();
+      assert((await page.getByTestId('demo-play').getAttribute('aria-pressed')) === 'false', 'manual navigation pauses playback');
       const demoFen = await page.getByTestId('coach-board').getAttribute('data-fen');
       assert(demoFen !== gameFen, 'the demonstration should show a different position');
+      const nMoves = await page.getByTestId('demo-move').count();
+      assert(nMoves >= 1 && /\d+\./.test(await page.getByTestId('demo-notation').innerText()), 'notation with move numbers');
+      await page.getByTestId('demo-move').nth(nMoves - 1).click();
+      assert((await page.getByTestId('demo-move').nth(nMoves - 1).getAttribute('aria-current')) === 'step', 'clicking a move jumps to it and highlights it');
+      await page.getByTestId('demo-first').click();
+      assert((await page.locator('[data-testid="demo-notation"] .is-start').getAttribute('aria-current')) === 'step', 'First returns to the start of the line');
+      await page.getByTestId('demo-speed-2').click();
+      await page.getByTestId('demo-replay').click();
+      await page.waitForFunction((n) => document.querySelector(`[data-testid="demo-move"]:nth-of-type(1)`) && [...document.querySelectorAll('[data-testid="demo-move"]')].at(-1)?.getAttribute('aria-current') === 'step', nMoves, { timeout: 15000 });
+      assert((await page.getByTestId('demo-play').getAttribute('aria-pressed')) === 'false', 'playback stops at the end');
+      assert((await page.getByTestId('demo').count()) === 1, 'the line stays visible after playback');
+      await page.getByTestId('demo-prev').click();
+      await page.getByTestId('demo-last').click();
       assert(await page.getByTestId('coach-board').evaluate((el) => el.classList.contains('is-demo')), 'the board is marked as a demonstration');
       assert((await page.locator('[data-testid="coach-board"] svg path, [data-testid="coach-board"] svg line').count()) >= 0, 'arrows');
       await page.screenshot({ path: `${SHOTS}/c1-coach-show-why.png` });
@@ -341,6 +373,39 @@ try {
     await page.waitForFunction((k) => document.querySelectorAll('[data-testid="movelist"] .ml-cell').length === k - 4, m, { timeout: 10000 });
     await page.locator('summary:has-text("This game and your learning profile")').click();
     assert(/3\s*takebacks/.test(await page.locator('details:has(summary:has-text("This game"))').innerText()), 'all takebacks should be counted');
+  });
+
+  await step('C2 premoves in the Coach: queued during its turn, played when legal, cancelled with Escape', async () => {
+    await page.goto(URL + '#/coach');
+    await page.waitForSelector('[data-testid="coach-board"]');
+    await page.locator('.panel-foot button[aria-label="Resign"]').click();
+    await page.locator('dialog[open] button:has-text("Resign game")').click();
+    await page.locator('button:has-text("New Coach game")').first().click();
+    await page.waitForSelector('[data-testid="coach-board"]');
+    const orient = await page.getByTestId('coach-board').getAttribute('data-orientation');
+    if (orient === 'black') {
+      await page.waitForFunction(() => document.querySelectorAll('[data-testid="movelist"] .ml-cell').length >= 1, null, { timeout: 60000 });
+    }
+    const fen0 = await page.getByTestId('coach-board').getAttribute('data-fen');
+    const me = new Chess(fen0).turn();
+    const [mv, pre] = me === 'w' ? ['e2e4', 'g1f3'] : ['g8f6', 'b8c6'];
+    await play('coach-board', [mv]);
+    await play('coach-board', [pre]);
+    await page.waitForSelector('[data-testid="premove-status"]', { timeout: 5000 });
+    assert((await page.getByTestId('coach-board').getAttribute('data-premoves')) === '1', 'one premove queued and shown');
+    await page.screenshot({ path: `${SHOTS}/c2-premove.png` });
+    const before = await page.locator(cells).count();
+    await page.waitForFunction((k) => document.querySelectorAll('[data-testid="movelist"] .ml-cell').length >= k + 2, before, { timeout: 60000 });
+    const last = (await page.locator(cells).last().innerText()).trim();
+    assert(/^N[fc][36]/.test(last), `the premove was played after the Coach's reply: ${last}`);
+    // queue another during the Coach's turn and cancel it
+    const fen1 = await page.getByTestId('coach-board').getAttribute('data-fen');
+    if (new Chess(fen1).turn() !== me) {
+      await play('coach-board', [me === 'w' ? 'b1c3' : 'e7e6']);
+      await page.waitForSelector('[data-testid="premove-status"]', { timeout: 3000 });
+      await page.keyboard.press('Escape');
+      assert((await page.getByTestId('premove-status').count()) === 0, 'Escape cancels premoves');
+    }
   });
 
   // ---------- Journey E: openings ----------
@@ -415,6 +480,75 @@ try {
     await page.screenshot({ path: `${SHOTS}/e3-progress-openings.png` });
   });
 
+  await step('P1 planning arrows: right-click draws, toggles and marks without moving pieces; sounds per event', async () => {
+    await page.goto(URL + '#/openings/explore');
+    await page.waitForSelector('[data-testid="explorer-board"]');
+    await page.evaluate(() => { window.__cm = []; window.addEventListener('contextmenu', (e) => setTimeout(() => window.__cm.push(e.defaultPrevented))); });
+    const fen0 = await page.getByTestId('explorer-board').getAttribute('data-fen');
+    const box = async (sqr) => sq('explorer-board', sqr).boundingBox();
+    const rdrag = async (a, b) => {
+      const A = await box(a); const B = await box(b);
+      await page.mouse.move(A.x + A.width / 2, A.y + A.height / 2);
+      await page.mouse.down({ button: 'right' });
+      await page.mouse.move(B.x + B.width / 2, B.y + B.height / 2, { steps: 4 });
+      await page.mouse.up({ button: 'right' });
+    };
+    await rdrag('e2', 'e4');
+    await rdrag('g1', 'f3');
+    await rdrag('d7', 'd5');
+    let ann = Number(await page.getByTestId('explorer-board').getAttribute('data-annotations'));
+    assert(ann === 3, `three arrows drawn (${ann})`);
+    assert((await page.locator('[data-testid="explorer-board"] [data-testid="plan-arrow"]').count()) === 3, 'arrows rendered');
+    await rdrag('d7', 'd5'); // the same arrow again removes it
+    await rdrag('e5', 'e5'); // a single square is marked
+    ann = Number(await page.getByTestId('explorer-board').getAttribute('data-annotations'));
+    assert(ann === 3, `toggle and mark (${ann})`);
+    assert((await page.getByTestId('explorer-board').getAttribute('data-fen')) === fen0, 'no piece moved');
+    const cm = await page.evaluate(() => window.__cm);
+    assert(cm.length > 0 && cm.every(Boolean), 'the browser context menu is suppressed on the board');
+    await page.screenshot({ path: `${SHOTS}/p1-planning.png` });
+    await page.getByTestId('clear-annotations').click();
+    assert((await page.getByTestId('explorer-board').getAttribute('data-annotations')) === '0', 'clear removes everything');
+    await rdrag('e2', 'e4');
+    const s0 = await page.evaluate(() => window.__chessOfLifeSounds.total);
+    await play('explorer-board', ['e2e4', 'd7d5', 'e4d5', 'd8d5', 'b1c3', 'd5e5']);
+    assert((await page.getByTestId('explorer-board').getAttribute('data-annotations')) === '0', 'annotations clear after a move');
+    await play('explorer-board', ['f1e2', 'e5e2']);
+    const played = await page.evaluate((n) => window.__chessOfLifeSounds.played.slice(-(window.__chessOfLifeSounds.total - n)), s0);
+    // 1.e4 d5 2.exd5 Qxd5 3.Nc3 Qe5+ 4.Be2 Qxe2+
+    assert(JSON.stringify(played) === JSON.stringify(['move', 'move', 'capture', 'capture', 'move', 'check', 'move', 'check']), `one sound per move, by event: ${played}`);
+    await page.keyboard.press('ArrowLeft');
+    await page.waitForTimeout(60);
+    const back = await page.evaluate(() => window.__chessOfLifeSounds.played.at(-1));
+    assert(back === 'move', 'stepping back plays a move sound');
+  });
+
+  await step('S1 gameplay settings persist and apply without a reload', async () => {
+    await page.goto(URL + '#/settings');
+    await page.locator('[data-testid="pref-speed"] button:has-text("Fast")').click();
+    await page.getByTestId('pref-multi-premoves').check();
+    await page.getByTestId('pref-volume').fill('40');
+    await page.getByTestId('pref-sound').uncheck();
+    await page.waitForTimeout(300);
+    await page.reload();
+    await page.waitForSelector('[data-testid="pref-speed"]');
+    assert((await page.locator('[data-testid="pref-speed"] button:has-text("Fast")').getAttribute('aria-pressed')) === 'true', 'speed persisted');
+    assert(await page.getByTestId('pref-multi-premoves').isChecked(), 'multiple premoves persisted');
+    assert(!(await page.getByTestId('pref-sound').isChecked()), 'sound off persisted');
+    assert((await page.getByTestId('pref-volume').inputValue()) === '40', 'volume persisted');
+    // sound off applies immediately
+    await page.goto(URL + '#/openings/explore');
+    await page.waitForSelector('[data-testid="explorer-board"]');
+    const n0 = await page.evaluate(() => window.__chessOfLifeSounds.total);
+    await play('explorer-board', ['e2e4']);
+    assert((await page.evaluate(() => window.__chessOfLifeSounds.total)) === n0, 'no sound when sound effects are off');
+    await page.goto(URL + '#/settings');
+    await page.getByTestId('pref-sound').check();
+    await page.locator('[data-testid="pref-speed"] button:has-text("Natural")').click();
+    await page.getByTestId('pref-multi-premoves').uncheck();
+    await page.getByTestId('pref-volume').fill('70');
+  });
+
   // ---------- Journey D ----------
   await step('D1 ranked: no assistance, other sections locked, resume after reload', async () => {
     await page.goto(URL + '#/ranked');
@@ -422,8 +556,15 @@ try {
     await page.waitForSelector('[data-testid="ranked-board"]');
     assert((await page.getByTestId('ranked-live').count()) === 1, 'ranked state missing');
     const orientation = await page.getByTestId('ranked-board').getAttribute('data-orientation');
-    if (orientation === 'white') await play('ranked-board', ['e2e4']);
-    await page.waitForFunction(() => document.querySelectorAll('[data-testid="movelist"] .ml-cell').length >= 1, null, { timeout: 60000 });
+    // a premove made while the Rival thinks is played as soon as it is legal
+    if (orientation === 'white') { await play('ranked-board', ['e2e4']); await play('ranked-board', ['g1f3']); }
+    else { await page.waitForFunction(() => document.querySelectorAll('[data-testid="movelist"] .ml-cell').length >= 1, null, { timeout: 60000 }); await play('ranked-board', ['g8f6']); await play('ranked-board', ['b8c6']); }
+    const premoved = await page.getByTestId('premove-status').count();
+    await page.waitForFunction((k) => document.querySelectorAll('[data-testid="movelist"] .ml-cell').length >= k || /Premove cancelled/.test(document.body.innerText), orientation === 'white' ? 3 : 4, { timeout: 60000 });
+    if (premoved && !(await page.locator('text=Premove cancelled').count())) {
+      const lastSan = (await page.locator(cells).last().innerText()).trim();
+      assert(/^N[fc][36]/.test(lastSan), `the Ranked premove was played: ${lastSan}`);
+    }
     for (const forbidden of ['evalbar', 'evalgraph', 'hint', 'hint-mobile', 'take-back', 'takeback', 'takeback-mobile', 'coach-feedback', 'show-why', 'best-move', 'compare', 'demo', 'prediction', 'tree', 'explanation', 'board-stamp', 'engine-lines', 'move-card', 'opening-name', 'opening-explorer', 'review-opening', 'coach-opening-note', 'theory-branches']) {
       assert((await page.getByTestId(forbidden).count()) === 0, `${forbidden} must not exist during ranked play`);
     }

@@ -609,9 +609,15 @@ dialog.dialog[open] { animation: dialog-in var(--t-med) var(--ease); }
 .demo-caption { min-height: 64px; padding: var(--s-3); border-radius: var(--r-sm); background: var(--ink-0); margin-bottom: var(--s-3); }
 .demo-caption b { font-family: var(--font-display); }
 .demo-controls { display: flex; flex-wrap: wrap; gap: var(--s-2); align-items: center; margin-bottom: var(--s-3); }
-.demo-dots { display: flex; gap: 4px; flex-wrap: wrap; flex-basis: 100%; }
-.demo-dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--line-strong); }
-.demo-dots i.on { background: var(--ivory); }
+.demo-notation { list-style: none; margin: 0 0 var(--s-2); padding: 0; display: flex; flex-wrap: wrap; gap: 2px 2px; align-items: baseline; font-size: var(--fs-sm); }
+.demo-notation li { display: inline-flex; align-items: baseline; gap: 2px; }
+.demo-no { color: var(--text-3); font-size: var(--fs-xs); margin-left: 4px; font-variant-numeric: tabular-nums; }
+.demo-move { border: 0; background: none; color: var(--text-2); font-weight: 600; padding: 3px 6px; border-radius: 5px; min-height: 28px; }
+.demo-move.by-you { color: var(--ivory); }
+.demo-move.is-start { font-weight: 500; color: var(--text-3); }
+.demo-move:hover { background: var(--ink-2); }
+.demo-move[aria-current="step"] { background: var(--ivory); color: var(--ivory-ink); }
+.seg-sm button { min-height: 28px; padding: 0 var(--s-2); font-size: var(--fs-xs); }
 .compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-2); margin-bottom: var(--s-3); }
 .compare-col { padding: var(--s-3); border-radius: var(--r-sm); background: var(--ink-0); border-top: 3px solid var(--c-mistake); font-size: var(--fs-sm); }
 .compare-col.is-best { border-top-color: #62b03c; }
@@ -677,3 +683,13 @@ dialog.dialog[open] { animation: dialog-in var(--t-med) var(--ease); }
 }
 
 .opening-strip { padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--line); }
+
+/* ---------- board planning & premoves ---------- */
+.plan-layer { position: absolute; inset: 0; pointer-events: none; }
+.plan-clear { position: absolute; top: 4px; right: 4px; z-index: 8; width: 26px; height: 26px; border-radius: 50%; border: 0; background: rgba(14,20,18,.78); color: var(--ivory); font-size: 13px; line-height: 1; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,.35); }
+.plan-clear:hover { background: rgba(14,20,18,.95); }
+.board-frame.is-planning { box-shadow: 0 0 0 2px #f2a33a, 0 14px 40px rgba(0,0,0,.45); }
+.touch-only { display: none !important; }
+@media (hover: none), (pointer: coarse) { .touch-only { display: inline-flex !important; } }
+.premove-chip { display: inline-flex; align-items: center; gap: var(--s-2); font-size: var(--fs-xs); color: var(--text-2); }
+.premove-chip i { width: 10px; height: 10px; border-radius: 3px; background: #a970d8; display: inline-block; }

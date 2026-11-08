@@ -1,6 +1,6 @@
 import { Chess } from 'chess.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Board, TONE_COLOR, type BoardMove } from '../../ui/Board';
+import { Board, PlanToggle, TONE_COLOR, type BoardMove } from '../../ui/Board';
 import { PlayerStrip, Stage } from '../../ui/stage';
 import { MoveList } from '../../ui/MoveList';
 import { ReplayControls } from '../../ui/Replay';
@@ -115,6 +115,7 @@ export function ExplorerTab({ pathArg }: { pathArg: string }) {
         bottom={<PlayerStrip name={top === 'w' ? 'Black' : 'White'} color={top === 'w' ? 'b' : 'w'} fen={fen} isTurn={turn !== top} />}
         below={<div className="row board-tools">
           <button type="button" className="btn btn-sm btn-quiet" onClick={() => setOrientation(orientation === 'white' ? 'black' : 'white')} title="Flip board (F)"><IconFlip size={16} /> Flip</button>
+          <PlanToggle />
           <span className="spacer" />
           <ReplayControls atStart={cursor === 0} atEnd={cursor === path.length} onFirst={() => setCursor(0)} onPrev={() => setCursor(Math.max(0, cursor - 1))} onNext={() => setCursor(Math.min(path.length, cursor + 1))} onLast={() => setCursor(path.length)} />
         </div>}>

@@ -3,10 +3,11 @@ import type { Comparison, DemoLine, Teaching } from '../../coach/teach';
 import { ClassIcon } from '../../ui/ClassIcon';
 import { IconFirst, IconLast, IconNext, IconPlay, IconPrev } from '../../ui/icons';
 import { formatScore } from '../../engine/score';
+import { moveLabel, type ReplayAction, type ReplaySpeed, type ReplayState } from '../../coach/replay';
 
 export type TeachView =
   | { k: 'points' }
-  | { k: 'demo'; line: DemoLine; step: number; playing: boolean }
+  | { k: 'demo'; line: DemoLine; rp: ReplayState }
   | { k: 'compare'; cmp: Comparison };
 
 const KIND_LABEL: Record<Teaching['kind'], string> = {
@@ -20,11 +21,11 @@ const KIND_LABEL: Record<Teaching['kind'], string> = {
  */
 export function TeachPanel({
   teaching, cls, provisional, blocking, view, focus, onFocus, onShowWhy, onBest, onCompare, onRetry, onContinue, onDismiss,
-  onStep, onTogglePlay, onReturn,
+  onReplay, onReturn,
 }: {
   teaching: Teaching; cls: Classification; provisional: boolean; blocking: boolean; view: TeachView; focus: number | null;
   onFocus: (i: number | null) => void; onShowWhy: () => void; onBest: () => void; onCompare: () => void; onRetry: () => void;
-  onContinue?: () => void; onDismiss?: () => void; onStep: (step: number) => void; onTogglePlay: () => void; onReturn: () => void;
+  onContinue?: () => void; onDismiss?: () => void; onReplay: (a: ReplayAction) => void; onReturn: () => void;
 }) {
   const bad = ['inaccuracy', 'mistake', 'miss', 'blunder'].includes(cls);
   const toneClass = teaching.tone === 'bad' ? 'tone-bad' : teaching.tone === 'warn' ? 'tone-warn' : teaching.tone === 'info' ? 'tone-info' : 'tone-good';
@@ -52,7 +53,7 @@ export function TeachPanel({
         </>
       )}
 
-      {view.k === 'demo' && <DemoView view={view} onStep={onStep} onTogglePlay={onTogglePlay} onReturn={onReturn} />}
+      {view.k === 'demo' && <DemoView view={view} onReplay={onReplay} onReturn={onReturn} />}
       {view.k === 'compare' && <CompareView cmp={view.cmp} onBest={onBest} onReturn={onReturn} />}
 
       <div className="teach-actions" data-testid="teach-actions">
@@ -70,17 +71,33 @@ export function TeachPanel({
   );
 }
 
-function DemoView({ view, onStep, onTogglePlay, onReturn }: { view: Extract<TeachView, { k: 'demo' }>; onStep: (s: number) => void; onTogglePlay: () => void; onReturn: () => void }) {
-  const { line, step } = view;
+const SPEEDS: ReplaySpeed[] = [0.5, 1, 2];
+
+function DemoView({ view, onReplay, onReturn }: { view: Extract<TeachView, { k: 'demo' }>; onReplay: (a: ReplayAction) => void; onReturn: () => void }) {
+  const { line, rp } = view;
+  const { step } = rp;
   const n = line.steps.length;
   const cur = step > 0 ? line.steps[step - 1] : null;
   return (
     <div data-testid="demo">
       <h3 className="section-title" style={{ marginBottom: 'var(--s-2)' }}>{line.title}</h3>
+      <ol className="demo-notation" aria-label="Moves of the demonstration" data-testid="demo-notation">
+        <li><button type="button" className="demo-move is-start" aria-current={step === 0 ? 'step' : undefined} onClick={() => onReplay({ t: 'goto', step: 0 })}>Start</button></li>
+        {line.steps.map((st, i) => {
+          const ml = moveLabel(line.startFen, i);
+          return (
+            <li key={i}>
+              {(ml.white || i === 0) && <span className="demo-no">{ml.label}</span>}
+              <button type="button" className={`demo-move${st.by === 'you' ? ' by-you' : ''}`} aria-current={step === i + 1 ? 'step' : undefined}
+                onClick={() => onReplay({ t: 'goto', step: i + 1 })} data-testid="demo-move" title={st.text || undefined}>{st.san}</button>
+            </li>
+          );
+        })}
+      </ol>
       <div className="demo-caption" aria-live="polite" data-testid="demo-caption">
         {cur ? (
           <>
-            <b>{cur.san}</b> <span className="faint small">{cur.by === 'you' ? 'you' : 'your opponent'}, step {step} of {n}</span>
+            <b>{moveLabel(line.startFen, step - 1).label} {cur.san}</b> <span className="faint small">{cur.by === 'you' ? 'you' : 'your opponent'}, move {step} of {n}</span>
             {cur.text && <div className="small" style={{ marginTop: 4 }}>{cur.text}</div>}
             {step === n && <div className="small dim" style={{ marginTop: 4 }}>{line.summary}</div>}
           </>
@@ -88,14 +105,17 @@ function DemoView({ view, onStep, onTogglePlay, onReturn }: { view: Extract<Teac
       </div>
       <div className="demo-controls">
         <div className="row-nowrap" style={{ gap: 4 }}>
-          <button type="button" className="btn btn-icon" onClick={() => onStep(0)} disabled={step === 0} aria-label="Start of the line"><IconFirst /></button>
-          <button type="button" className="btn btn-icon" onClick={() => onStep(step - 1)} disabled={step === 0} aria-label="Previous move" data-testid="demo-prev"><IconPrev /></button>
-          <button type="button" className="btn btn-icon" onClick={() => onStep(step + 1)} disabled={step >= n} aria-label="Next move" data-testid="demo-next"><IconNext /></button>
-          <button type="button" className="btn btn-icon" onClick={() => onStep(n)} disabled={step >= n} aria-label="End of the line"><IconLast /></button>
+          <button type="button" className="btn btn-icon" onClick={() => onReplay({ t: 'first' })} disabled={step === 0} aria-label="First: start of the line" title="First (Home)" data-testid="demo-first"><IconFirst /></button>
+          <button type="button" className="btn btn-icon" onClick={() => onReplay({ t: 'prev' })} disabled={step === 0} aria-label="Previous move" title="Previous (←)" data-testid="demo-prev"><IconPrev /></button>
+          <button type="button" className="btn btn-icon" onClick={() => onReplay({ t: 'next' })} disabled={step >= n} aria-label="Next move" title="Next (→)" data-testid="demo-next"><IconNext /></button>
+          <button type="button" className="btn btn-icon" onClick={() => onReplay({ t: 'last' })} disabled={step >= n} aria-label="Last: end of the line" title="Last (End)" data-testid="demo-last"><IconLast /></button>
         </div>
-        <button type="button" className="btn btn-sm" onClick={onTogglePlay} aria-pressed={view.playing} data-testid="demo-play"><IconPlay size={14} /> {view.playing ? 'Pause' : step >= n ? 'Replay' : 'Play'}</button>
-        <button type="button" className="btn btn-sm btn-quiet" onClick={onReturn} data-testid="demo-return">Return to position</button>
-        <div className="demo-dots" aria-hidden="true">{line.steps.map((_, i) => <i key={i} className={i < step ? 'on' : ''} />)}</div>
+        <button type="button" className="btn btn-sm" onClick={() => onReplay({ t: 'toggle' })} aria-pressed={rp.playing} data-testid="demo-play" title="Play or pause (Space)"><IconPlay size={14} /> {rp.playing ? 'Pause' : 'Play'}</button>
+        <button type="button" className="btn btn-sm btn-quiet" onClick={() => onReplay({ t: 'replay' })} data-testid="demo-replay">Replay</button>
+        <div className="seg seg-sm" role="group" aria-label="Playback speed">
+          {SPEEDS.map((sp) => <button key={sp} type="button" aria-pressed={rp.speed === sp} onClick={() => onReplay({ t: 'speed', speed: sp })} data-testid={`demo-speed-${sp}`}>{sp}×</button>)}
+        </div>
+        <button type="button" className="btn btn-sm btn-quiet" onClick={onReturn} data-testid="demo-return">Return to the game</button>
       </div>
     </div>
   );

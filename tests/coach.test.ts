@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { Chess } from 'chess.js';
 import { commitCoachMove, commitPending, isPlayerTurn, proposeMove, restoreCoachState, sessionStats, setAttemptEvaluation, startCoachSession, takeBack, recordHint } from '../src/coach/session';
 import { emptyProfile, focusAreas, isMastered, recordDecision } from '../src/coach/profile';
-import { buildHints, hintAt, revealsMove, TECHNIQUES } from '../src/coach/hints';
+import { buildHintPlan, nextStage, progressFor, revealsMove, revealsPiece } from '../src/coach/hints';
 import { assessTeachingValue, gradePrediction } from '../src/coach/prediction';
 import { emptyStat, addOutcome, rating } from '../src/coach/skills';
 import { evidenceFromAttempt } from '../src/services/coach';
@@ -84,65 +84,71 @@ describe('Coach session: takebacks and learning history', () => {
   });
 });
 
-describe('Coach hints', () => {
-  const POSITIONS: { fen: string; best: string; second?: string }[] = [
+describe('Coach hints: three stages per position', () => {
+  const POSITIONS: { fen: string; best: string; stage1: RegExp }[] = [
     // knight fork available: Nc7+ forks king and rook
-    { fen: 'r3k3/8/8/1N6/8/8/8/4K3 w q - 0 1', best: 'Nc7+' },
+    { fen: 'r3k3/8/8/1N6/8/8/8/4K3 w q - 0 1', best: 'Nc7+', stage1: /two important targets/ },
     // mate in one on the back rank
-    { fen: '6k1/5ppp/8/8/8/8/8/R5K1 w - - 0 1', best: 'Ra8#' },
-    // queen attacked: must move/defend it
-    { fen: 'rnb1kbnr/pppp1ppp/8/4p1q1/3P4/2N5/PPP1PPPP/R1BQKBNR w KQkq - 0 1', best: 'Bxg5' },
+    { fen: '6k1/5ppp/8/8/8/8/8/R5K1 w - - 0 1', best: 'Ra8#', stage1: /end the game/ },
+    // the black queen is loose: Bxg5 wins it
+    { fen: 'rnb1kbnr/pppp1ppp/8/4p1q1/3P4/2N5/PPP1PPPP/R1BQKBNR w KQkq - 0 1', best: 'Bxg5', stage1: /properly defended|Material is at stake/ },
     // quiet developing position
-    { fen: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2', best: 'Nf3' },
+    { fen: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2', best: 'Nf3', stage1: /Development comes first/ },
   ];
   for (const p of POSITIONS) {
-    it(`never reveals the move, however many hints are asked for (${p.best})`, () => {
+    it(`builds three consistent stages for ${p.best}`, () => {
       const a = res(p.fen, [[p.best, { cp: 300 }]]);
-      const hints = buildHints(p.fen, a, { lastMove: { san: 'Nc6', from: 'b8', to: 'c6' }, ply: 10 });
-      expect(hints.length).toBeGreaterThanOrEqual(2);
-      expect(new Set(hints.map((h) => h.id)).size).toBe(hints.length);
-      const bestUci = a.bestmove!;
-      const pieceT = new Chess(p.fen).move(p.best).piece;
-      for (let n = 0; n < hints.length + TECHNIQUES.length + 12; n++) {
-        const h = hintAt(hints, n);
-        expect(h.text.length).toBeGreaterThan(10);
-        expect(revealsMove(h.text, bestUci, p.best, pieceT)).toBe(false);
-      }
+      const plan = buildHintPlan(p.fen, a)!;
+      const m = new Chess(p.fen).move(p.best);
+      const uci = m.from + m.to;
+      expect(plan.bestUci).toBe(uci); // every stage is about the engine's top move
+      const [s1, s2, s3] = plan.stages;
+      expect(s1.stage).toBe(1);
+      expect(s1.text).toMatch(p.stage1);
+      expect(revealsMove(s1.text, uci, p.best, m.piece)).toBe(false);
+      expect(revealsPiece(s1.text, uci, m.piece)).toBe(false);
+      expect(s1.squares).toEqual([]);
+      // stage 2 names and highlights the piece, never the destination
+      expect(s2.text).toContain(`on ${m.from}`);
+      expect(s2.squares).toEqual([m.from]);
+      expect(revealsMove(s2.text, uci, p.best, m.piece)).toBe(false);
+      // stage 3 is the move with both squares and a reason
+      expect(s3.text.startsWith(m.san)).toBe(true);
+      expect(s3.squares).toEqual([m.from, m.to]);
+      expect(s3.arrow).toEqual([m.from, m.to]);
+      expect(s3.text.length).toBeGreaterThan(m.san.length + 20);
     });
   }
 
-  it('is unlimited: position hints, then techniques, then a review of earlier hints', () => {
-    const fen = POSITIONS[0].fen;
-    const hints = buildHints(fen, res(fen, [['Nc7+', { cp: 500 }]]));
-    const kinds = Array.from({ length: hints.length + TECHNIQUES.length + 3 }, (_, n) => hintAt(hints, n).kind);
-    expect(kinds.slice(0, hints.length).every((k) => k === 'position')).toBe(true);
-    expect(kinds.slice(hints.length, hints.length + TECHNIQUES.length).every((k) => k === 'technique')).toBe(true);
-    expect(kinds.slice(hints.length + TECHNIQUES.length).every((k) => k === 'review')).toBe(true);
-    expect(hintAt(hints, 500).text).toMatch(/without giving the move away/);
+  it('stops at exactly three stages and starts again in a new position', () => {
+    const start = new Chess().fen();
+    let p = progressFor(null, start);
+    expect(p.stage).toBe(0);
+    for (let i = 0; i < 10; i++) p = nextStage(p);
+    expect(p.stage).toBe(3);
+    const after = new Chess(); after.move('e4');
+    const q = progressFor(p, after.fen());
+    expect(q.stage).toBe(0); // the position changed
+    expect(progressFor(q, after.fen())).toBe(q); // same position keeps its progress
+    // coming back to the earlier position gives its hints again
+    expect(progressFor(q, start).stage).toBe(0);
   });
 
-  it('detects the ways a hint could give the move away', () => {
-    expect(revealsMove('Look at c7.', 'b5c7', 'Nc7+')).toBe(true);
-    expect(revealsMove('Consider Nc7 here', 'b5c7', 'Nc7+')).toBe(true);
-    expect(revealsMove('The a-file is important', 'a1a8', 'Ra8#', 'r')).toBe(true);
-    expect(revealsMove('Look at the enemy king.', 'a1a8', 'Ra8#', 'r')).toBe(false);
+  it('matches the advice to what the best move does (no development advice for a pawn move)', () => {
+    const fen = 'rnbqkbnr/pppppp1p/6p1/8/8/4P3/PPPP1PPP/RNBQKBNR w KQkq - 0 2'; // 1.e3 g6: the engine likes c4
+    const plan = buildHintPlan(fen, res(fen, [['c4', { cp: 72 }], ['d4', { cp: 60 }], ['Nf3', { cp: 55 }]]))!;
+    expect(plan.stages[0].text).not.toMatch(/Development/);
+    expect(plan.stages[0].text).toMatch(/centre/);
+    expect(plan.stages[2].text).toMatch(/takes control of .*d5/);
+    expect(plan.stages[2].text).toMatch(/next choice, d4, is 0.12 pawns worse|d4 is almost as good/);
   });
 
-  it('makes hints relevant to the position', () => {
-    const fork = buildHints('r3k3/8/8/1N6/8/8/8/4K3 w q - 0 1', res('r3k3/8/8/1N6/8/8/8/4K3 w q - 0 1', [['Nc7+', { cp: 500 }]]));
-    expect(fork.find((h) => h.id === 'piece')!.text).toMatch(/knight/);
-    expect(fork.find((h) => h.id === 'idea')!.text).toMatch(/two important targets/);
-    const threatened = 'rnb1kbnr/pppp1ppp/8/4p1q1/3P4/2N5/PPP1PPPP/R1BQKBNR w KQkq - 0 1';
-    const t = buildHints(threatened, res(threatened, [['Bxg5', { cp: 900 }]]));
-    expect(t[0].text).toMatch(/forcing moves|attacking/);
-    const withLast = buildHints(threatened, res(threatened, [['Bxg5', { cp: 900 }]]), { lastMove: { san: 'Qg5', from: 'd8', to: 'g5' } });
-    expect(withLast.find((h) => h.id === 'last-move')?.text).toMatch(/Qg5/);
-  });
-
-  it('counts checks and captures correctly', () => {
-    const fen = '6k1/5ppp/8/8/8/8/8/R5K1 w - - 0 1';
-    const h = buildHints(fen, res(fen, [['Ra8#', { mate: 1 }]])).find((x) => x.id === 'counts')!;
-    expect(h.text).toMatch(/You have 1 check and 0 captures/);
+  it('explains why the best move works in stage 3', () => {
+    const fen = 'r3k3/8/8/1N6/8/8/8/4K3 w q - 0 1';
+    const plan = buildHintPlan(fen, res(fen, [['Nc7+', { cp: 500 }]]))!;
+    expect(plan.stages[2].text).toMatch(/Fork/);
+    const mate = '6k1/5ppp/8/8/8/8/8/R5K1 w - - 0 1';
+    expect(buildHintPlan(mate, res(mate, [['Ra8#', { mate: 1 }]]))!.stages[2].text).toMatch(/checkmate/);
   });
 });
 

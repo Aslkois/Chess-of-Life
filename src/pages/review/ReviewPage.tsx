@@ -8,7 +8,7 @@ import type { Classification } from '../../analysis/classify';
 import { getEngine } from '../../engine/instance';
 import { AbortedError, type AnalysisResult } from '../../engine/controller';
 import type { Score } from '../../engine/score';
-import { Board, type BoardAnnotation, type BoardMove } from '../../ui/Board';
+import { Board, PlanToggle, type BoardAnnotation, type BoardMove } from '../../ui/Board';
 import { PlayerStrip, Stage } from '../../ui/stage';
 import { EvalGraph } from '../../ui/EvalGraph';
 import { MoveList } from '../../ui/MoveList';
@@ -66,6 +66,7 @@ export function ReviewPage({ gameId, ply }: { gameId?: string; ply?: string }) {
       if (!g) return;
       setTree(g.tree);
       const target = plyRef.current !== undefined ? mainline(g.tree)[Number(plyRef.current)] : undefined;
+      if (target) appliedPly.current = `${g.id}:${plyRef.current}`;
       setCur(target ?? g.tree.rootId);
       if (playerColorOf(g, prefs.playerNames) === 'b') setOrientation('black');
       const r = await get('reviews', gameId);
@@ -77,12 +78,18 @@ export function ReviewPage({ gameId, ply }: { gameId?: string; ply?: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameId]);
 
-  // a deep link to a ply of the same game (e.g. from the Opening Explorer)
+  // a deep link to a ply (e.g. from the Opening Explorer): applied once per (game, ply),
+  // whichever arrives first, the link or the loaded game
+  const appliedPly = useRef<string | null>(null);
   useEffect(() => {
-    if (ply === undefined || !tree) return;
+    if (ply === undefined || !tree || !game) return;
+    const k = `${game.id}:${ply}`;
+    if (appliedPly.current === k) return;
     const id = mainline(tree)[Number(ply)];
-    if (id) setCur(id);
-  }, [ply]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!id) return;
+    appliedPly.current = k;
+    setCur(id);
+  }, [ply, tree, game]); // eslint-disable-line react-hooks/exhaustive-deps
   const [allGames, setAllGames] = useState<GameRecord[] | null>(null);
   useEffect(() => { listGames().then(setAllGames).catch(() => setAllGames([])); }, [gameId]);
   const setSide = async (v: string) => {
@@ -314,6 +321,7 @@ export function ReviewPage({ gameId, ply }: { gameId?: string; ply?: string }) {
             <>
               <div className="row board-tools">
                 <button type="button" className="btn btn-sm btn-quiet" onClick={flip} title="Flip board (F)"><IconFlip size={16} /> Flip</button>
+                <PlanToggle />
                 <button type="button" className="btn btn-sm btn-quiet" aria-pressed={prefs.showBestArrow} onClick={() => updatePrefs({ showBestArrow: !prefs.showBestArrow })} title="Show the engine's best move as an arrow"><IconEye size={16} /> {prefs.showBestArrow ? 'Hide best move' : 'Show best move'}</button>
                 <span className="spacer" />
                 <button type="button" className="btn btn-sm btn-quiet hide-mobile" onClick={() => setShowKeys(true)} title="Keyboard shortcuts (?)"><IconKeyboard size={16} /> Shortcuts</button>

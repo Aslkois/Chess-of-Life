@@ -22,6 +22,7 @@ interface. The board is the stage; everything else is one panel beside it.
 | Ivory (text, selection, primary) | `#ede7d5` |
 | Secondary / tertiary text | `#a8ac9f` / `#737b73` |
 | Branch / engine / PGN variation | `#b49cf4` / `#8fb2d9` / `#d6c48f` |
+| Board marks | last move `rgba(255,233,120,.42)`; planning arrows/marks orange `#f2a33a` (Shift green `#5fb944`, Alt blue `#4f8ef0`, Ctrl red `#e5534b`); premoves violet `#a970d8`, dashed; teaching: threats red, better green, concept orange, plans blue |
 | Classifications | brilliant `#1fbfad`, great `#5c93f0`, best `#7fb34a`, excellent `#9ac35c`, good `#93a88b`, book `#b08d66`, inaccuracy `#eec35a`, mistake `#f09b48`, miss `#ef7462`, blunder `#e5443a` |
 | Type | Bricolage Grotesque (bundled, OFL) for display, system UI for interface text, tabular numerals for clocks and scores; scale ×1.25 from 14.5 px |
 | Spacing | 4 px grid |
@@ -61,7 +62,15 @@ The panel is pinned to the board column's height and scrolls internally.
   board frame turns violet and a bar says where the branch left the game, with
   **Back to game** (Esc).
 * Keyboard: ← → moves, Home/End, ↑ ↓ key moments, F flips, ? lists shortcuts.
-  In the Coach, H asks for a hint.
+  In the Coach, H asks for the next hint stage, Backspace takes back, Esc
+  cancels premoves; in a demonstration ← → Home End step and Space plays or
+  pauses.
+* Right-click and drag draws a planning arrow, right-click marks a square; a
+  left click, the next move or the ✕ on the board clears them. Touch screens
+  get a Plan toggle instead. Planning never moves a piece.
+* Premoves: during the opponent's turn the player's own pieces can be dragged
+  or clicked; the premove shows as a dashed violet arrow and squares, with a
+  "Premove … Cancel (Esc)" chip under the board.
 * Destructive actions are quiet buttons that open a confirmation whose buttons
   say what happens ("Delete branch" / "Keep branch").
 * Disabled controls carry a tooltip that says why.

@@ -20,7 +20,8 @@ export function MoveList({ moves, current, onSelect, futureFrom, startPly = 0, s
   moves: MoveItem[]; current: number; onSelect?: (n: number) => void; futureFrom?: number; startPly?: number; showIcons?: boolean; testId?: string; empty?: ReactNode; style?: React.CSSProperties;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
+  const keepInView = useRef(() => {});
+  keepInView.current = () => {
     const box = ref.current;
     const el = box?.querySelector<HTMLElement>('.ml-cell.is-current');
     if (!box) return;
@@ -29,7 +30,16 @@ export function MoveList({ moves, current, onSelect, futureFrom, startPly = 0, s
     const bottom = top + el.offsetHeight;
     if (top < box.scrollTop + 8) box.scrollTop = Math.max(0, top - 48);
     else if (bottom > box.scrollTop + box.clientHeight - 8) box.scrollTop = bottom - box.clientHeight + 48;
-  }, [current, moves.length]);
+  };
+  useEffect(() => keepInView.current(), [current, moves.length]);
+  // the panel around the list can change height later (analysis arriving, notes appearing)
+  useEffect(() => {
+    const box = ref.current;
+    if (!box || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => keepInView.current());
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, []);
 
   const offset = startPly % 2;
   const total = moves.length + offset;

@@ -145,6 +145,8 @@ export interface RankedMatch {
   clock?: { remaining: { w: number; b: number }; running: 'w' | 'b' | null; since: number };
   drawOfferedByPlayerAtPly?: number;
   analysisDone: boolean;
+  /** plies the player made with a premove (their time says nothing about thinking) */
+  premovePlies?: number[];
   gameId?: string;
   createdAt: number;
   updatedAt: number;
@@ -185,6 +187,17 @@ export interface Preferences {
   reviewTab: 'review' | 'explore' | 'summary';
   /** names the user plays under in PGN files (to know their side in imported games) */
   playerNames: string[];
+  /** prepare moves during the opponent's turn (Coach and Ranked) */
+  premoves: boolean;
+  /** allow up to five queued premoves instead of one */
+  multiPremoves: boolean;
+  /** right-click (or plan mode on touch) to draw arrows and mark squares */
+  planning: boolean;
+  /** how long the Coach and the Rival pause before moving */
+  opponentSpeed: 'instant' | 'fast' | 'natural' | 'relaxed';
+  sound: boolean;
+  /** 0..1 */
+  soundVolume: number;
 }
 
 /** A saved opening line of the user's repertoire (SAN from the standard start position). */
@@ -236,4 +249,10 @@ export const DEFAULT_PREFS: Preferences = {
   showBestArrow: false,
   reviewTab: 'review',
   playerNames: [],
+  premoves: true,
+  multiPremoves: false,
+  planning: true,
+  opponentSpeed: 'natural',
+  sound: true,
+  soundVolume: 0.7,
 };
