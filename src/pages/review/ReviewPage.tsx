@@ -8,7 +8,7 @@ import type { Classification } from '../../analysis/classify';
 import { getEngine } from '../../engine/instance';
 import { AbortedError, type AnalysisResult } from '../../engine/controller';
 import type { Score } from '../../engine/score';
-import { Board, type BoardAnnotation, type BoardMove } from '../../ui/Board';
+import { Board, PlanToggle, type BoardAnnotation, type BoardMove } from '../../ui/Board';
 import { PlayerStrip, Stage } from '../../ui/stage';
 import { EvalGraph } from '../../ui/EvalGraph';
 import { MoveList } from '../../ui/MoveList';
@@ -28,6 +28,8 @@ import { prettyDate } from '../../util/format';
 import { ExplorePanel } from './ExplorePanel';
 import { SummaryPanel } from './SummaryPanel';
 import { OpeningStrip } from './OpeningStrip';
+import { ExplainPanel, explainBoard, toBoardMarks, type ExplainView } from './ExplainPanel';
+import { explainMove, type Explanation } from '../../analysis/explainMove';
 import { trackOpening } from '../../analysis/openings';
 import { gamesAtPosition, playerColorOf } from '../../services/openings';
 import { saveGame } from '../../services/games';
@@ -66,6 +68,7 @@ export function ReviewPage({ gameId, ply }: { gameId?: string; ply?: string }) {
       if (!g) return;
       setTree(g.tree);
       const target = plyRef.current !== undefined ? mainline(g.tree)[Number(plyRef.current)] : undefined;
+      if (target) appliedPly.current = `${g.id}:${plyRef.current}`;
       setCur(target ?? g.tree.rootId);
       if (playerColorOf(g, prefs.playerNames) === 'b') setOrientation('black');
       const r = await get('reviews', gameId);
@@ -77,12 +80,23 @@ export function ReviewPage({ gameId, ply }: { gameId?: string; ply?: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameId]);
 
-  // a deep link to a ply of the same game (e.g. from the Opening Explorer)
+  // a deep link to a ply (e.g. from the Opening Explorer): applied once per (game, ply),
+  // whichever arrives first, the link or the loaded game
+  const appliedPly = useRef<string | null>(null);
   useEffect(() => {
-    if (ply === undefined || !tree) return;
+    if (ply === undefined || !tree || !game) return;
+    const k = `${game.id}:${ply}`;
+    if (appliedPly.current === k) return;
     const id = mainline(tree)[Number(ply)];
-    if (id) setCur(id);
-  }, [ply]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!id) return;
+    appliedPly.current = k;
+    setCur(id);
+  }, [ply, tree, game]); // eslint-disable-line react-hooks/exhaustive-deps
+  /** an explanation, shown only when the user asks for it; any change of position dismisses it */
+  const [explainState, setExplain] = useState<{ nodeId: string; x: Explanation; view: ExplainView } | null>(null);
+  useEffect(() => { setExplain((e) => (e && e.nodeId !== cur ? null : e)); }, [cur]);
+  // derived during render, so navigating away hides it in the same frame
+  const explain = explainState && explainState.nodeId === cur ? explainState : null;
   const [allGames, setAllGames] = useState<GameRecord[] | null>(null);
   useEffect(() => { listGames().then(setAllGames).catch(() => setAllGames([])); }, [gameId]);
   const setSide = async (v: string) => {
@@ -161,6 +175,30 @@ export function ReviewPage({ gameId, ply }: { gameId?: string; ply?: string }) {
     for (;;) { const n = preferredChild(tree, c); if (!n) break; c = n; }
     go(c);
   };
+  // ---------- explanations (on request only) ----------
+  const explainData = () => {
+    if (!review || !tree || !mr || !onMain || mainIdx < 1 || !allowed(mode, 'explanations')) return null;
+    const m = mainIdx - 1;
+    const before = review.positions.find((p) => p.nodeId === line[m]);
+    const after = review.positions.find((p) => p.nodeId === line[m + 1]);
+    if (!before?.lines?.length) return null;
+    const prev = m >= 1 ? review.moves[m - 1] : undefined;
+    return { fenBefore: tree.nodes[line[m]].fen, uci: mr.uci, cls: mr.cls, epl: mr.epl, before: before.lines, after: after?.lines ?? [], prev: prev ? { san: prev.san, uci: prev.uci, cls: prev.cls, epl: prev.epl } : null };
+  };
+  const canExplain = !!explainData();
+  const toggleExplain = () => {
+    if (explain) { setExplain(null); return; }
+    const d = explainData();
+    if (!d || !node) return;
+    try { setExplain({ nodeId: node.id, x: explainMove(d), view: { k: 'point', i: 0 } }); } catch { /* nothing to explain */ }
+  };
+  const stepLine = (d: number) => setExplain((e) => {
+    if (!e || e.view.k !== 'line') return e;
+    const v = e.view;
+    const ln = e.x.lines.find((l) => l.id === v.id);
+    return ln ? { ...e, view: { ...v, step: Math.max(0, Math.min(ln.steps.length, v.step + d)) } } : e;
+  });
+
   const prevKey = keyMoments.filter((i) => i < (onMain ? mainIdx : Infinity)).pop();
   const nextKey = keyMoments.find((i) => i > (onMain ? mainIdx : -1));
   const flip = () => setOrientation((o) => (o === 'white' ? 'black' : 'white'));
@@ -170,7 +208,10 @@ export function ReviewPage({ gameId, ply }: { gameId?: string; ply?: string }) {
     ArrowDown: () => { if (nextKey !== undefined) go(line[nextKey]); },
     f: flip, F: flip,
     '?': () => setShowKeys(true),
-    Escape: () => { if (!onMain) { backToGame(); setTab('review'); } },
+    e: () => toggleExplain(),
+    '[': () => stepLine(-1),
+    ']': () => stepLine(1),
+    Escape: () => { if (explain) { setExplain(null); return; } if (!onMain) { backToGame(); setTab('review'); } },
   });
 
   // ---------- live analysis of the current position ----------
@@ -260,12 +301,18 @@ export function ReviewPage({ gameId, ply }: { gameId?: string; ply?: string }) {
     const b = live.lines[0].pv[0];
     arrows.push([b.slice(0, 2), b.slice(2, 4), 'rgba(127, 179, 74, 0.85)']);
   }
+  // while an explanation is open the board shows its position and marks; the game itself is untouched
+  const xb = explain && mr ? explainBoard(explain.x, explain.view) : null;
+  const boardFen = xb ? xb.fen : node.fen;
+  const boardMarks = xb && mr ? toBoardMarks(xb.marks, mr.cls) : null;
+  const onGamePosition = !xb || xb.fen === node.fen;
+  const boardLast: [string, string] | null = xb ? xb.lastMove : node.uci ? [node.uci.slice(0, 2), node.uci.slice(2, 4)] : null;
   const whiteName = game.headers.White && game.headers.White !== '?' ? game.headers.White : 'White';
   const blackName = game.headers.Black && game.headers.Black !== '?' ? game.headers.Black : 'Black';
   const topColor = orientation === 'white' ? 'b' : 'w';
   const nameOf = (c: 'w' | 'b') => (c === 'w' ? whiteName : blackName);
   const eloOf = (c: 'w' | 'b') => (c === 'w' ? game.headers.WhiteElo : game.headers.BlackElo);
-  const turn = new Chess(node.fen).turn();
+  const turn = new Chess(boardFen).turn();
   const progress = review ? Math.round((review.progress.done / Math.max(1, review.progress.total)) * 100) : 0;
   const scores = line.map((id) => posEval.get(id));
   const metaBits = [game.headers.Event, prettyDate(game.headers.Date), review?.opening ? `${review.opening.eco} ${review.opening.name}` : null].filter((x) => x && x !== '?' && x !== '????.??.??');
@@ -308,12 +355,13 @@ export function ReviewPage({ gameId, ply }: { gameId?: string; ply?: string }) {
 
       <div className="board-layout">
         <Stage orientation={orientation} evalScore={allowed(mode, 'evalBar') ? live?.lines[0]?.score ?? evalOf(node.id) ?? null : undefined}
-          top={<PlayerStrip name={nameOf(topColor)} color={topColor} fen={node.fen} meta={eloOf(topColor)} isTurn={turn === topColor} />}
-          bottom={<PlayerStrip name={nameOf(topColor === 'w' ? 'b' : 'w')} color={topColor === 'w' ? 'b' : 'w'} fen={node.fen} meta={eloOf(topColor === 'w' ? 'b' : 'w')} isTurn={turn !== topColor} />}
+          top={<PlayerStrip name={nameOf(topColor)} color={topColor} fen={boardFen} meta={eloOf(topColor)} isTurn={turn === topColor} />}
+          bottom={<PlayerStrip name={nameOf(topColor === 'w' ? 'b' : 'w')} color={topColor === 'w' ? 'b' : 'w'} fen={boardFen} meta={eloOf(topColor === 'w' ? 'b' : 'w')} isTurn={turn !== topColor} />}
           below={
             <>
               <div className="row board-tools">
                 <button type="button" className="btn btn-sm btn-quiet" onClick={flip} title="Flip board (F)"><IconFlip size={16} /> Flip</button>
+                <PlanToggle />
                 <button type="button" className="btn btn-sm btn-quiet" aria-pressed={prefs.showBestArrow} onClick={() => updatePrefs({ showBestArrow: !prefs.showBestArrow })} title="Show the engine's best move as an arrow"><IconEye size={16} /> {prefs.showBestArrow ? 'Hide best move' : 'Show best move'}</button>
                 <span className="spacer" />
                 <button type="button" className="btn btn-sm btn-quiet hide-mobile" onClick={() => setShowKeys(true)} title="Keyboard shortcuts (?)"><IconKeyboard size={16} /> Shortcuts</button>
@@ -321,8 +369,8 @@ export function ReviewPage({ gameId, ply }: { gameId?: string; ply?: string }) {
             </>
           }>
           {(size) => (
-            <Board fen={node.fen} orientation={orientation} size={size} movable={allowed(mode, 'branches') ? 'both' : 'none'} onMove={onBoardMove}
-              lastMove={node.uci ? [node.uci.slice(0, 2), node.uci.slice(2, 4)] : null} annotation={annotation} arrows={arrows} frame={exploreMode ? 'explore' : 'normal'} id="review-board" />
+            <Board fen={boardFen} orientation={orientation} size={size} movable={allowed(mode, 'branches') && onGamePosition ? 'both' : 'none'} onMove={onBoardMove}
+              lastMove={boardLast} annotation={onGamePosition && !xb ? annotation : null} arrows={xb ? [] : arrows} marks={boardMarks} frame={xb && !onGamePosition ? 'demo' : exploreMode ? 'explore' : 'normal'} id="review-board" />
           )}
         </Stage>
 
@@ -358,9 +406,11 @@ export function ReviewPage({ gameId, ply }: { gameId?: string; ply?: string }) {
                   return <OpeningStrip ply={op} ucis={ucisToHere} leftWith={leftWith} mine={mine} isMove={!!node.parentId} />;
                 })()}
                 <MoveStrip moves={moveItems} current={onMain ? mainIdx : -1} onSelect={(n) => go(line[n])} showIcons={allowed(mode, 'classifications')} />
-                <div className="panel-card-scroll">
+                <div className={`panel-card-scroll${explain ? ' is-explaining' : ''}`}>
                   <MoveCard node={node} parentFen={node.parentId ? tree.nodes[node.parentId].fen : undefined} mr={mr} live={live} opening={null}
-                    showClass={allowed(mode, 'classifications')} showEngine={allowed(mode, 'engineLines')} onPlayLine={playLine} />
+                    onExplain={onMain && allowed(mode, 'explanations') ? toggleExplain : undefined} explaining={!!explain} canExplain={canExplain}
+                    showClass={allowed(mode, 'classifications')} showEngine={allowed(mode, 'engineLines') && !explain} onPlayLine={playLine} />
+                  {explain && mr && <ExplainPanel x={explain.x} cls={mr.cls} view={explain.view} onView={(v) => setExplain((e) => (e ? { ...e, view: v } : e))} onClose={() => setExplain(null)} />}
                 </div>
                 {allowed(mode, 'evalGraph') && review && <div className="panel-graph hide-mobile"><EvalGraph scores={scores} current={onMain ? mainIdx : -1} onSelect={(i) => go(line[i])} marks={line.slice(1).map((id) => byNode.get(id)?.cls)} height={46} /></div>}
                 <MoveList moves={moveItems} current={onMain ? mainIdx : -1} onSelect={(n) => go(line[n])} showIcons={allowed(mode, 'classifications')} empty="This game has no moves." />

@@ -52,7 +52,8 @@ export async function learnFromRankedGame(match: RankedMatch, review: GameReview
     opening: opening ? { key: opening.eco + ' ' + opening.name.split(':')[0], name: opening.name.split(':')[0], line: match.ucis.slice(0, Math.max(bookPlies, 2)) } : null,
     review,
     fens,
-    timeSpent: match.timeSpent,
+    // premoved moves took no thinking time: leave them out of the time-use model
+    timeSpent: match.timeSpent.map((t, i) => (match.premovePlies?.includes(i) ? undefined : t)),
     clockAfter: match.clockAfter.map((x) => (x < 0 ? undefined : x)),
     initialMs: match.timeControl.initial * 1000,
   });

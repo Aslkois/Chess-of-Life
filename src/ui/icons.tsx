@@ -38,4 +38,5 @@ export const IconEye = ({ size }: P) => <S size={size}><path d="M2.5 12S6 5.5 12
 export const IconSort = ({ size }: P) => <S size={size}><path d="m8 9 4-4 4 4M8 15l4 4 4-4" /></S>;
 export const IconStar = ({ size }: P) => <S size={size}><path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.8l-5.2 2.8 1-5.8-4.3-4.1 5.9-.9z" /></S>;
 export const IconBook = ({ size }: P) => <S size={size}><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z" /><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5" /><path d="M8 7.5h8M8 11h5" /></S>;
+export const IconPencil = ({ size }: P) => <S size={size}><path d="m4 20 1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19z" /><path d="m14.5 6.5 3 3" /></S>;
 export const IconAlert = ({ size }: P) => <S size={size}><path d="M12 4 2.5 20h19z" /><path d="M12 10v4.5M12 17.5h.01" /></S>;

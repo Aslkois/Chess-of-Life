@@ -6,6 +6,7 @@ import { ConfirmDialog } from '../ui/Dialog';
 import { BOARD_THEMES, MiniBoard, type BoardTheme } from '../ui/Board';
 import { getEngine } from '../engine/instance';
 import { OPENING_COUNT } from '../analysis/openings';
+import { playSound, unlockAudio, type SoundKind } from '../audio/sounds';
 
 const QUALITY = [
   { id: 'fast', label: 'Fast', quick: 8, deep: 12, live: 10, desc: 'Quick reviews on any device. Fine for spotting blunders.' },
@@ -71,8 +72,26 @@ export function SettingsPage() {
       </section>
 
       <section className="settings-group" aria-labelledby="s-play">
-        <header><h2 id="s-play">Coach and Ranked</h2></header>
+        <header><h2 id="s-play">Gameplay</h2><p>Changes apply immediately.</p></header>
         <div className="stack">
+          <label className="check"><input type="checkbox" checked={prefs.premoves} onChange={(e) => updatePrefs({ premoves: e.target.checked })} data-testid="pref-premoves" /><span className="check-text">Premoves<small>Prepare your move while the Coach or the Rival is thinking. It is played as soon as it is your turn, if it is still legal.</small></span></label>
+          <label className="check" style={{ marginLeft: 'var(--s-6)' }}><input type="checkbox" checked={prefs.multiPremoves} disabled={!prefs.premoves} onChange={(e) => updatePrefs({ multiPremoves: e.target.checked })} data-testid="pref-multi-premoves" /><span className="check-text">Multiple premoves<small>Queue up to five moves, played one after another while they stay legal.</small></span></label>
+          <label className="check"><input type="checkbox" checked={prefs.planning} onChange={(e) => updatePrefs({ planning: e.target.checked })} data-testid="pref-planning" /><span className="check-text">Right-click planning<small>Right-click and drag to draw an arrow; right-click a square to mark it. Hold Shift, Alt or Ctrl for green, blue or red. On touch screens use the Plan button.</small></span></label>
+          <div className="field">
+            <span className="field-label">Opponent move speed</span>
+            <div className="seg" role="group" aria-label="Opponent move speed" data-testid="pref-speed">
+              {(['instant', 'fast', 'natural', 'relaxed'] as const).map((v) => <button key={v} type="button" aria-pressed={prefs.opponentSpeed === v} onClick={() => updatePrefs({ opponentSpeed: v })}>{v[0].toUpperCase() + v.slice(1)}</button>)}
+            </div>
+            <span className="field-hint">How long the Coach and the Rival pause before moving. It never changes which move they choose, and on a clock the pause is always kept small.</span>
+          </div>
+          <label className="check"><input type="checkbox" checked={prefs.sound} onChange={(e) => updatePrefs({ sound: e.target.checked })} data-testid="pref-sound" /><span className="check-text">Sound effects<small>Moves, captures, checks and castling.</small></span></label>
+          <div className="field">
+            <span className="field-label">Sound volume <span className="faint num">{Math.round(prefs.soundVolume * 100)}%</span></span>
+            <div className="row-nowrap">
+              <input type="range" min={0} max={100} step={5} value={Math.round(prefs.soundVolume * 100)} disabled={!prefs.sound} onChange={(e) => updatePrefs({ soundVolume: Number(e.target.value) / 100 })} aria-label="Sound volume" data-testid="pref-volume" style={{ flex: 1 }} />
+              <button type="button" className="btn btn-sm" disabled={!prefs.sound} onClick={() => { unlockAudio(); ['move', 'capture', 'check', 'castle'].forEach((k, i) => setTimeout(() => playSound(k as SoundKind, prefs.soundVolume), i * 380)); }}>Test</button>
+            </div>
+          </div>
           <label className="check"><input type="checkbox" checked={prefs.predictionExercises} onChange={(e) => updatePrefs({ predictionExercises: e.target.checked })} /><span className="check-text">Predict the Opponent exercises<small>Let the Coach ask what you expect at important moments.</small></span></label>
           <label className="check"><input type="checkbox" checked={prefs.confirmResign} onChange={(e) => updatePrefs({ confirmResign: e.target.checked })} /><span className="check-text">Ask before resigning a Ranked game</span></label>
         </div>
@@ -118,7 +137,7 @@ export function SettingsPage() {
         <div className="small dim stack" style={{ gap: 'var(--s-2)' }}>
           <p>Chess of Life runs entirely on your device: no accounts, servers or tracking.</p>
           <p><b>Stockfish 17.1</b> (lite single-threaded WebAssembly build from stockfish.js), GPL-3.0. Licence text: <a href="./engine/COPYING.txt" target="_blank" rel="noreferrer">engine/COPYING.txt</a>.</p>
-          <p>Opening reference: {OPENING_COUNT} lines from lichess-org/chess-openings, CC0 (public domain). No master-game database is bundled, because none is available under a licence that allows redistribution; the Explorer says so instead of showing numbers. Pieces: Cburnett set, CC BY-SA 3.0. Typeface: Bricolage Grotesque, SIL Open Font License. chess.js (BSD-2-Clause), React (MIT), idb (ISC), react-chessboard (MIT).</p>
+          <p>Opening reference: {OPENING_COUNT} lines from lichess-org/chess-openings, CC0 (public domain). No master-game database is bundled, because none is available under a licence that allows redistribution; the Explorer says so instead of showing numbers. Pieces: Cburnett set, CC BY-SA 3.0. Typeface: Bricolage Grotesque, SIL Open Font License. Move sounds: synthesised by Chess of Life, public domain. chess.js (BSD-2-Clause), React (MIT), idb (ISC), react-chessboard (MIT).</p>
           <p className="faint">Move ratings, accuracy and the Ranked rating use Chess of Life's own documented methods, not Chess.com or Lichess numbers.</p>
         </div>
       </section>

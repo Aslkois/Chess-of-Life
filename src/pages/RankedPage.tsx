@@ -1,6 +1,11 @@
 import { Chess } from 'chess.js';
 import { useEffect, useRef, useState } from 'react';
-import { Board, type BoardMove } from '../ui/Board';
+import { Board, PlanToggle, type BoardMove } from '../ui/Board';
+import { addPremove, PREMOVE_TIME_MS, takePremove, type Premove } from '../chess/premove';
+import { sleep, thinkTime } from '../engine/pacing';
+import { AbortedError } from '../engine/controller';
+import { isBookMove, isBookPosition } from '../analysis/openings';
+import { useKeys } from '../ui/useKeys';
 import { MoveList } from '../ui/MoveList';
 import { MoveStrip } from '../ui/MoveStrip';
 import { PlayerStrip, Stage } from '../ui/stage';
@@ -50,6 +55,12 @@ export function RankedPage() {
   const [recent, setRecent] = useState<RankedMatch[]>([]);
   useEffect(() => { listMatches().then((m) => setRecent(m.filter((x) => x.status === 'finished').slice(0, 5))).catch(() => {}); }, [finished]);
   const finishing = useRef<string | null>(null);
+  const rivalAbort = useRef(new AbortController());
+  useEffect(() => () => rivalAbort.current.abort(), []);
+  const [premoves, setPremovesRaw] = useState<Premove[]>([]);
+  const premoveRef = useRef<Premove[]>([]);
+  const setPremoves = (q: Premove[]) => { premoveRef.current = q; setPremovesRaw(q); };
+  const [premoveNote, setPremoveNote] = useState<string | null>(null);
 
   useEffect(() => { loadRankedProfile().then(setProfile); }, []);
   // resume a match in progress (the active id is read asynchronously at start-up)
@@ -103,18 +114,66 @@ export function RankedPage() {
     const rand = mulberry32(seedFrom(m.seed, ply));
     const fen = rankedFen(s);
     const ctx = { fen, history: m.ucis, rivalColor: rivalColor as 'w' | 'b', playerClockFraction: isTimed(s.clock) ? remainingMs(s.clock, m.playerColor, Date.now()) / (m.timeControl.initial * 1000) : 1 };
+    const t0 = Date.now();
+    const signal = rivalAbort.current.signal;
     try {
-      const { move } = await pickMove(getEngine(), fen, prof, rand, async (cands) => applyStrategy(await withOpeningCandidates(getEngine(), cands, m.strategy, ctx, prof), m.strategy, ctx));
+      const { move, analysis } = await pickMove(getEngine(), fen, prof, rand, async (cands) => applyStrategy(await withOpeningCandidates(getEngine(), cands, m.strategy, ctx, prof), m.strategy, ctx), signal);
+      // a natural pause on the Rival's own clock, capped so it can never cost the game; it does not change the move
+      const live = rsRef.current;
+      if (live && live.match.status === 'active' && live.match.moves.length === ply) {
+        const pace = thinkTime({
+          fen, analysis, uci: move.uci, book: isBookPosition(fen) && isBookMove(fen, move.uci), level: m.rivalLevel,
+          clockMs: isTimed(live.clock) ? remainingMs(live.clock, rivalColor as 'w' | 'b', Date.now()) : undefined, incrementMs: m.timeControl.increment * 1000,
+          engineMs: Date.now() - t0, speed: prefs.opponentSpeed, rand: mulberry32(seedFrom(m.seed, ply) ^ 0x2c1b),
+        });
+        await sleep(pace.waitMs, signal);
+      }
       const cur = rsRef.current;
       if (!cur || cur.match.status !== 'active' || cur.match.moves.length !== ply) return;
       const next = playRankedMove(cur, move.uci, Date.now(), move.reasons.length ? move.reasons : ['strongest practical move at this level']);
       setRs(next);
       if (next.match.status !== 'active') void finish(next);
-    } catch {
+    } catch (e) {
+      if (e instanceof AbortedError) { thinking.current = -1; return; }
       thinking.current = -1; // allow a retry on the next render
       setTimeout(() => setNow(Date.now()), 500);
     }
   };
+
+  // ---------- premoves ----------
+  const addQueued = (mv: Premove): boolean => {
+    const s = rsRef.current;
+    if (!s || s.match.status !== 'active' || !prefs.premoves) return false;
+    const q = addPremove(rankedFen(s), premoveRef.current, mv, s.match.playerColor, prefs.multiPremoves);
+    if (!q) return false;
+    setPremoves(q); setPremoveNote(null);
+    return true;
+  };
+  const cancelPremoves = () => { if (premoveRef.current.length) { setPremoves([]); setPremoveNote('Premoves cancelled.'); } };
+  useKeys({ Escape: cancelPremoves }, !!rs && rs.match.status === 'active');
+  // play the next premove when it is the player's turn; on a running clock it takes PREMOVE_TIME_MS
+  useEffect(() => {
+    const s = rsRef.current;
+    if (!s || s.match.status !== 'active' || !premoveRef.current.length) return;
+    if (new Chess(rankedFen(s)).turn() !== s.match.playerColor) return;
+    const plyAt = s.match.moves.length;
+    const wait = isTimed(s.clock) && s.clock.running === s.match.playerColor ? Math.max(0, s.clock.since + PREMOVE_TIME_MS - Date.now()) : 0;
+    const t = setTimeout(() => {
+      const cur = rsRef.current;
+      if (!cur || cur.match.status !== 'active' || cur.match.moves.length !== plyAt) return;
+      const r = takePremove(rankedFen(cur), premoveRef.current);
+      if (!r) return;
+      if ('cancelled' in r) { setPremoves([]); setPremoveNote('Premove cancelled: it is not legal in this position.'); return; }
+      setPremoves(r.rest);
+      let next: RankedState;
+      try { next = playRankedMove(cur, r.uci, Date.now()); } catch { setPremoves([]); return; }
+      next = { ...next, match: { ...next.match, premovePlies: [...(cur.match.premovePlies ?? []), plyAt] } };
+      setRs(next);
+      if (next.match.status !== 'active') void finish(next);
+    }, wait);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rs?.match.moves.length, rs?.match.status, premoves]);
 
   const start = async () => {
     const p = await loadRankedProfile();
@@ -124,6 +183,9 @@ export function RankedPage() {
     const tc = TIME_CONTROLS.find((t) => t.id === tcId)!.tc;
     const s = createMatch({ playerColor, rivalLevel: level, timeControl: tc, strategy: deriveStrategy(model, playerColor === 'w' ? 'b' : 'w') });
     thinking.current = -1;
+    rivalAbort.current.abort();
+    rivalAbort.current = new AbortController();
+    setPremoves([]); setPremoveNote(null);
     setFinished(null); setReview(null); setMessage(null);
     setOrientation(playerColor === 'w' ? 'white' : 'black');
     setRs(s);
@@ -145,6 +207,9 @@ export function RankedPage() {
   const finish = async (s: RankedState) => {
     if (finishing.current === s.match.id) return;
     finishing.current = s.match.id;
+    setPremoves([]);
+    rivalAbort.current.abort();
+    rivalAbort.current = new AbortController();
     setActiveRanked(null);
     const { match, profile: p } = await recordRankedResult(s.match);
     setProfile(p);
@@ -287,8 +352,11 @@ export function RankedPage() {
       </header>
       <div className="board-layout">
         <Stage orientation={orientation} top={strip(top)} bottom={strip(top === 'w' ? 'b' : 'w')}
-          below={<div className="row board-tools hide-mobile"><button type="button" className="btn btn-sm btn-quiet" onClick={() => setOrientation(orientation === 'white' ? 'black' : 'white')}><IconFlip size={16} /> Flip</button></div>}>
-          {(size) => <Board fen={fen} orientation={orientation} size={size} movable={active ? player : 'none'} onMove={onMove} lastMove={lastUci ? [lastUci.slice(0, 2), lastUci.slice(2, 4)] : null} id="ranked-board" />}
+          below={<div className="row board-tools"><button type="button" className="btn btn-sm btn-quiet hide-mobile" onClick={() => setOrientation(orientation === 'white' ? 'black' : 'white')}><IconFlip size={16} /> Flip</button><PlanToggle />
+            {premoves.length > 0 && <span className="premove-chip" data-testid="premove-status"><i />Premove{premoves.length > 1 ? `s ${premoves.length}` : ''}: {premoves.map((x) => `${x.from}–${x.to}`).join(', ')} <button type="button" className="btn btn-sm btn-quiet" onClick={cancelPremoves} data-testid="cancel-premoves">Cancel (Esc)</button></span>}
+            {premoves.length === 0 && premoveNote && <span className="premove-chip" role="status">{premoveNote}</span>}</div>}>
+          {(size) => <Board fen={fen} orientation={orientation} size={size} movable={active ? player : 'none'} onMove={onMove} lastMove={lastUci ? [lastUci.slice(0, 2), lastUci.slice(2, 4)] : null} id="ranked-board"
+            premove={active && prefs.premoves ? { color: player, queue: premoves, onAdd: addQueued, onCancel: cancelPremoves } : null} />}
         </Stage>
         <div className="panel-slot">
           <section className="panel" aria-label="Match">

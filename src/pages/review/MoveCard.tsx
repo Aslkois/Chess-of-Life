@@ -1,5 +1,5 @@
 import { Chess } from 'chess.js';
-import { CLASS_INFO, type Classification } from '../../analysis/classify';
+import { CLASS_INFO } from '../../analysis/classify';
 import { formatLine, pvToSan } from '../../analysis/explain';
 import type { MoveReview } from '../../analysis/review';
 import type { OpeningInfo } from '../../analysis/openings';
@@ -11,30 +11,12 @@ import { IconBranch } from '../../ui/icons';
 
 const ORD = (n: number) => `${n}${n % 10 === 1 && n % 100 !== 11 ? 'st' : n % 10 === 2 && n % 100 !== 12 ? 'nd' : n % 10 === 3 && n % 100 !== 13 ? 'rd' : 'th'}`;
 
-const DEFAULT_LINE: Partial<Record<Classification, string>> = {
-  book: 'A catalogued opening move.',
-  best: "The engine's top choice in this position.",
-  excellent: 'Nearly as strong as the best move.',
-  good: 'A reasonable move. A slightly stronger option existed.',
-};
-
-/** Split the verified explanation into readable parts. Nothing is added that the analysis did not establish. */
-function shape(mr: MoveReview) {
-  const bullets: string[] = [];
-  let better: { san: string; score: string; why: string } | null = null;
-  for (const item of mr.explanation.slice(1)) { // [0] repeats class + numbers, shown elsewhere
-    if (item.startsWith('Engine line:')) continue;
-    const m = item.match(/^Better was (\S+) \(([^)]+)\)\.\s*(.*)$/);
-    if (m) { better = { san: m[1], score: m[2], why: m[3] }; continue; }
-    bullets.push(item);
-  }
-  // the Brilliant note and the sacrifice motif describe the same verified fact
-  if (bullets.some((b) => b.startsWith('Sacrifices about'))) {
-    const i = bullets.findIndex((b) => b.startsWith('This offers material'));
-    if (i >= 0) bullets.splice(i, 1);
-  }
-  if (!bullets.length && DEFAULT_LINE[mr.cls]) bullets.push(DEFAULT_LINE[mr.cls]!);
-  return { bullets, better };
+/** The engine's better move, from the stored analysis (no commentary: that is what Explain is for). */
+function betterMove(mr: MoveReview) {
+  if (!mr.bestSan || mr.bestSan === mr.san || mr.epl < 2) return null;
+  const item = mr.explanation.find((x) => x.startsWith('Better was'));
+  const m = item?.match(/^Better was (\S+) \(([^)]+)\)/);
+  return { san: mr.bestSan, score: m ? m[2] : '' };
 }
 
 function sansToUci(fen: string, sans: string[]): string[] {
@@ -44,7 +26,7 @@ function sansToUci(fen: string, sans: string[]): string[] {
   return out;
 }
 
-export function MoveCard({ node, parentFen, mr, live, opening, showClass, showEngine, onPlayLine, explore }: {
+export function MoveCard({ node, parentFen, mr, live, opening, showClass, showEngine, onPlayLine, explore, onExplain, explaining, canExplain }: {
   node: TreeNode;
   parentFen?: string;
   mr?: MoveReview;
@@ -54,6 +36,10 @@ export function MoveCard({ node, parentFen, mr, live, opening, showClass, showEn
   showEngine: boolean;
   onPlayLine: (fen: string, pv: string[], plies: number) => void;
   explore?: boolean;
+  /** open or close the explanation of this move (only on request) */
+  onExplain?: () => void;
+  explaining?: boolean;
+  canExplain?: boolean;
 }) {
   if (!node.san) {
     return (
@@ -90,7 +76,7 @@ export function MoveCard({ node, parentFen, mr, live, opening, showClass, showEn
   }
 
   const info = CLASS_INFO[mr.cls];
-  const { bullets, better } = shape(mr);
+  const better = betterMove(mr);
   const who = mr.color === 'w' ? 'White' : 'Black';
   return (
     <div className="move-card" data-testid="move-card">
@@ -100,17 +86,20 @@ export function MoveCard({ node, parentFen, mr, live, opening, showClass, showEn
         <span className="move-verdict" style={{ color: info.color }} data-testid="move-class">{info.label}</span>
       </div>
       <div className="move-sub">
-        {who}'s {ORD(moveNo)} move. Winning chances {mr.winBefore.toFixed(0)}% → {mr.winAfter.toFixed(0)}%.
+        {who}'s {ORD(moveNo)} move. Winning chances {mr.winBefore.toFixed(0)}% → {mr.winAfter.toFixed(0)}%, evaluation {formatScore(mr.evalAfter)}.
         {mr.provisional && <> <span className="faint">Provisional until the deeper pass finishes.</span></>}
       </div>
-      <ul className="move-explain" data-testid="explanation">
-        {mr.forced && <li>It was the only legal move.</li>}
-        {bullets.map((b, i) => <li key={i}>{b}</li>)}
-      </ul>
-      {better && parentFen && mr.bestLine.length > 0 && (
+      {onExplain && (
+        <div className="row" style={{ marginTop: 'var(--s-3)' }}>
+          <button type="button" className={explaining ? 'btn btn-sm' : 'btn btn-sm btn-primary'} onClick={onExplain} disabled={!canExplain && !explaining} aria-pressed={!!explaining} data-testid="explain-move"
+            title={canExplain || explaining ? 'Explain this move on the board (E)' : 'Available when the analysis of this move is ready'}>
+            {explaining ? 'Hide explanation' : 'Explain'}
+          </button>
+        </div>
+      )}
+      {better && parentFen && mr.bestLine.length > 0 && !explaining && (
         <div className="best-line" data-testid="best-line">
-          <div>Best was <b>{better.san}</b> <span className="faint num">({better.score})</span></div>
-          {better.why && <div className="small dim" style={{ marginTop: 4 }}>{better.why}</div>}
+          <div>Best was <b>{better.san}</b> {better.score && <span className="faint num">({better.score})</span>}</div>
           <div className="small faint" style={{ marginTop: 6 }}>{formatLine(parentFen, mr.bestLine.slice(0, 8))}</div>
           <button type="button" className="btn btn-sm" style={{ marginTop: 'var(--s-2)' }} onClick={() => onPlayLine(parentFen, sansToUci(parentFen, mr.bestLine), 10)} data-testid="explore-best">
             <IconBranch size={16} /> Explore this line

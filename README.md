@@ -15,11 +15,12 @@ your browser. No account, no server, no subscription, no limits on reviews.
 
 | Area | What you get |
 |---|---|
-| **Game Review** | Enter a game by **reconstructing it move by move** on the board (both sides, legal moves only, undo/redo, autosave) or **import PGN** (paste or file, many games per file, headers/clocks/comments/NAGs/variations preserved, clear error reporting). Both produce the same game record. Review shows accuracy for both players, the ten move classifications (Brilliant, Great, Best, Excellent, Good, Book, Inaccuracy, Mistake, Miss, Blunder), evaluation bar and graph, winning-chance changes, centipawn loss, best lines, verified tactical explanations, turning points, opening name and a written summary. Results are provisional after a quick pass and refined by a deep pass. |
+| **Game Review** | Enter a game by **reconstructing it move by move** on the board (both sides, legal moves only, undo/redo, autosave) or **import PGN** (paste or file, many games per file, headers/clocks/comments/NAGs/variations preserved, clear error reporting). Both produce the same game record. Review shows accuracy for both players, the ten move classifications (Brilliant, Great, Best, Excellent, Good, Book, Inaccuracy, Mistake, Miss, Blunder), evaluation bar and graph, winning-chance changes, centipawn loss, best lines, turning points, opening name and a written summary. Press **Explain** on any move for a visual explanation built from the engine analysis and the board: what went wrong and how it is punished, why a good move works (tactics, free material, defence, development, justified sacrifices), what a quiet move prepares, and the better or second-best move, with arrows and lines you can step through and compare. Nothing is explained until you ask. Results are provisional after a quick pass and refined by a deep pass. |
 | **Tree of Life** | Play any move from any position to branch; branches nest without limit. Stockfish can play a move, a line or 6 moves of continuation. Branches can be named, annotated, compared with the original game (evaluation, winning chances, material, verified consequences) and deleted. The original game is immutable. Outline view + branch map; transpositions share cached evaluations. PGN export with nested variations. |
-| **Coach** | A real game against an opponent whose goal is your improvement. Every move — yours and the Coach's — is rated live (provisional, then refined). Mistakes, misses and blunders get a concrete explanation (which piece, which square, the punishing reply) with **Show Why**, **Best Move** and **Compare** demonstrations on request, then **Retry** or **Continue**. **Take back** any move, as often as you like — after the Coach's reply or even after the game has ended. Unlimited hints that point to *what to look at*, never the move. Selective **Predict the Opponent** exercises at moments with real teaching value. A persistent learning profile separates independent decisions from assisted ones and reports confidence honestly. |
+| **Coach** | A real game against an opponent whose goal is your improvement. Every move — yours and the Coach's — is rated live (provisional, then refined). Mistakes, misses and blunders get a concrete explanation (which piece, which square, the punishing reply) with **Show Why**, **Best Move** and **Compare** demonstrations on request (played automatically at 0.5×–2× or stepped through move by move), then **Retry** or **Continue**. **Take back** any move, as often as you like — after the Coach's reply or even after the game has ended. Hints in three steps for every position: what to look for, which piece, then the best move and why. Selective **Predict the Opponent** exercises at moments with real teaching value. A persistent learning profile separates independent decisions from assisted ones and reports confidence honestly. |
 | **Ranked Rival** | Competitive games with clocks (3+2 … 30+20 or untimed), resignation, draw offers, threefold / 50-move claims, automatic fivefold / 75-move / dead-position draws and FIDE time-forfeit rules. **No assistance of any kind** while the game is running — and every other part of the app is locked. The Rival plays at a fixed, calibrated level, learns only from completed Ranked games, and steers toward your demonstrated weaknesses with sound moves. Internal Glicko-2 rating, match history, adaptation log. Analysis unlocks after the game. |
 | **Openings** | An **Opening Explorer** built on the free Lichess opening list (CC0): family, variation and sub-variation with ECO code, book status per position, transpositions recognised, the last known opening kept after leaving theory, catalogued continuations with the number of dataset lines through each, **My Games** statistics from your own games (with the games behind every number), the engine only when you ask, and an honest "not included" for master games. Personal opening statistics in Progress (family → variation → sub-variation, W/D/L, score, opening accuracy, where theory was left, over time, filters), opening identity and book status per move in Game Review, post-move opening notes in the Coach, theory branches in the Tree of Life, and a **repertoire** with practice against a training opponent (unlimited retries, forgotten-move tracking, PGN import/export), kept apart from all game statistics. Locked during Ranked play like everything else. |
+| **Board** | Right-click planning arrows and marked squares (Shift/Alt/Ctrl colours, a Plan mode for touch screens), premoves in Coach and Ranked (one, or up to five queued), opponents that pause naturally before moving (Instant, Fast, Natural or Relaxed), and move, capture, check and castling sounds, all configurable under Settings → Gameplay. |
 | **Data** | IndexedDB with versioned migrations: games, drafts, reviews, engine cache, branches, Coach sessions / attempts / predictions, learning profile, Ranked matches, Rival model and adaptations, preferences. Export / import a JSON backup; delete everything. Works offline after the first visit (PWA). |
 
 ## Interface
@@ -84,7 +85,7 @@ service worker makes it available offline after the first visit.
 npm test
 ```
 
-165 unit/integration tests (Vitest). Highlights: complete legal games, castling /
+197 unit/integration tests (Vitest). Highlights: complete legal games, castling /
 en passant / promotion, stalemate, insufficient material, threefold vs fivefold
 and 50 vs 75-move rules, time forfeit vs insufficient material, clocks; PGN
 import (multi-game, comments, NAGs, clocks, variations, errors, `0-0`, FEN
@@ -116,7 +117,22 @@ established side, Coach games apart, colour and source filters, early errors
 and opening accuracy from reviews; repertoire merging, conflicts, practice with
 unlimited retries, opponent deviations, forgotten-move tracking; the database
 upgrade keeping existing games, backups including the repertoire, repertoire
-PGN round trip; theory branches; no opening aids during Ranked.
+PGN round trip; theory branches; no opening aids during Ranked; three hint
+stages about one engine move (no piece or square in stage 1, no destination in
+stage 2, the move and why in stage 3, reset per position); Show Me playback
+(manual steps pause, speeds, replay, move numbering); opponent pacing
+(situations, ranges, variation, engine time counted, speed setting, clock
+safety, cancellation with fake timers); premoves (movement patterns, queue of
+one or five, legality at execution, cancellation, castling, promotion);
+planning (toggling, recolouring, modifier colours, square mapping in both
+orientations); sound selection (priority, en passant, castling with check,
+forward and backward steps) and synthesis (no clipping or clicks, short,
+distinct); Game Review explanations on real positions analysed by Stockfish
+(development with the bishop's diagonal and target, an inaccuracy that ignores a
+threat with the better move as an arrow, best and second best practically
+equal, a bad trade with its exchange sequence, a fork's attack lines, blocking a
+check, a blunder for Black, free material, a missed win, a justified sacrifice
+that the engine line declines), with every line replayed for legality.
 
 End-to-end check in a real browser (requires Playwright with Chromium):
 
@@ -124,7 +140,7 @@ End-to-end check in a real browser (requires Playwright with Chromium):
 npm run build && npm run e2e
 ```
 
-It drives the production build through 20 checks: the Game Review chooser
+It drives the production build through 24 checks: the Game Review chooser
 (initial focus, arrow keys, Tab containment, Escape, focus return);
 reconstruction with board and typed moves, undo/redo and reload; a full review
 where the board stamp, the move panel and the explanation agree; board flipping
@@ -139,7 +155,14 @@ leaving theory with the last known name kept, honest masters state, engine
 only on request), saving a repertoire line and practising it (wrong moves
 rejected and not played, Show me, the opponent replying), Review opening
 strip at a deep-linked move with the side set, and the Progress openings
-tree; Ranked with
+tree; no explanation in Game Review until Explain is
+pressed, its board marks, Show best stepping, Compare, arrows on the right
+squares with the board flipped, Return, and dismissal on navigation; three hint stages
+then "All hints revealed" and a reset in the next position; Show Me notation,
+speeds, replay and manual steps; premoves played after the Coach's reply and
+cancelled with Escape; right-click arrows and marks without moving pieces or
+opening the browser menu; one sound per move by event; gameplay settings
+persisting across a reload; Ranked with
 every assistive element absent, the app locked, resume after reload,
 resignation and rating change; reduced motion; offline use; layouts at 1280,
 1024, 820 and 390 px without overflow and with replay controls on screen; and
@@ -201,6 +224,9 @@ Key decisions:
   redistribution in a free offline app, so the Explorer says so instead of
   showing numbers.
 * Piece images: "Cburnett" set (CC BY-SA 3.0) bundled by react-chessboard (MIT).
+* Move sounds: synthesised in `src/audio/sounds.ts`, part of this source (public
+  domain). The Chess.com sound files were considered but not used: no licence
+  permitting their redistribution could be found.
 * Typeface: Bricolage Grotesque (SIL Open Font License), bundled via @fontsource.
 
 ## Limitations
@@ -226,6 +252,11 @@ Key decisions:
   any legal sequence" (lone king, or lone minor piece vs bare king).
 * Clocks keep running if you leave a Ranked game (by design); the Rival's
   thinking time counts against its own clock.
+* Opponent pauses use this app's own ranges; there is no published description
+  of how other sites pace their bots, so nothing is copied or assumed.
+* Premoves are checked by movement pattern while waiting and for full legality
+  only when played, so a premove that becomes illegal is cancelled (with a
+  note) rather than played.
 * Opening names come only from the catalogued list: positions it does not
   name keep the last name reached on the path, and a game that re-enters
   theory at an unnamed position keeps its earlier name. There are no master

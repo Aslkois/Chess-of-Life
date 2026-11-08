@@ -121,6 +121,50 @@ the board:
 If no motif explains an evaluation change, the explanation says so and shows
 the engine line instead of inventing a reason.
 
+### Explanations on request (`analysis/explainMove.ts`)
+
+Game Review shows a move's rating, evaluation and highlights while you step
+through the game, and nothing more: an explanation is built only when
+**Explain** is pressed (or E), for the selected move, and any change of
+position dismisses it with its board marks. It uses the review's own engine
+data (MultiPV lines before the move, the main line after it) and the board:
+
+* **Errors** (inaccuracy to blunder): a piece left en prise or a defender
+  removed (attackers, defenders and the winning capture, as arrows and rings);
+  a threat that already existed and is ignored; a **bad trade** (the exchange
+  on the square, from the engine line or least-valuable-attacker order cut
+  where a side would stop); the opponent's punishing reply when it is a mate,
+  a meaningful tactic or a double attack that costs material; the material
+  the engine line wins, counted from before the move; positional costs when
+  there is no tactic; otherwise an honest statement that no tactic punishes
+  it. Then the better move: arrow, icon, evaluation and what it does (its
+  tactic, the piece it saves, what it attacks or controls).
+* **Missed opportunities**: when the opponent's previous move was an error,
+  what the better move would have won.
+* **Good moves**: tactics (fork, pin, skewer and discovered attack or check
+  with their attack lines, only when something valuable is involved),
+  **free material** (why it can be taken, including whether anything can
+  recapture), deflection and removing the defender (only when the engine line
+  then takes the piece), **justified sacrifices** (with the acceptance and
+  what the line shows; if the engine line declines the offer, it says so),
+  **defence** (checking line plus block, capture or king move; the threatened
+  piece it saves; a mating threat it stops), castling, **development and
+  activity** (the diagonal a bishop controls, open files, pieces attacked and
+  how they are defended, central squares), pawn moves (squares gained, pieces
+  defended or attacked, lines opened) and **what it prepares**: the mover's
+  next quiet moves in the engine continuation, drawn as dashed numbered
+  arrows and labelled a possible plan, not a forced line.
+* **Best vs second best**: both evaluations and continuations; if they are
+  within 2 points of winning chances the explanation says they are
+  practically equal instead of inventing a difference.
+
+Lines (the played move with the engine continuation, the best line, the
+second best, the exchange) all start from the position before the move,
+are replayed move by move (so they are legal), can be stepped half-move by
+half-move, compared at the same step, and never touch the game or its tree.
+A line counts as forcing when its first two plies are checks, captures or
+replies to check, or it mates.
+
 ## 4. Openings (`analysis/openings.ts`, `services/openings.ts`, `openings/repertoire.ts`)
 
 **Reference.** The Lichess `chess-openings` dataset (CC0-1.0, 3,865 named
@@ -260,14 +304,24 @@ crashed workers are restarted and the search retried (twice).
   *mastered* when the lower 90 % bound is ≥ 70 % with moderate+ confidence.
   Focus areas are the weakest skills with evidence. The Coach's level moves up
   after wins / draws and down after low independent accuracy.
-* **Hints** (`coach/hints.ts`): unlimited. Position hints come first (threats
-  against you, where to look, the opponent's last move, which piece type,
-  counted checks and captures, the idea, king pressure, development, pawn
-  structure, open files, outposts, material), then general calculation
-  techniques (labelled), then a review of the earlier hints. Every hint is
-  checked so it never contains the recommended move's SAN, its destination
-  square or (for rooks and queens) its destination file; no arrows or
-  highlights are shown before the move.
+* **Hints** (`coach/hints.ts`): three stages per position, all about the same
+  move, the top line of the engine analysis the Coach rates moves with.
+  Stage 1 is strategic advice chosen from that move's verified features
+  (forced mate, a threat against you, fork, discovered attack, pin, skewer,
+  loose enemy piece, mating net, sacrifice, promotion race, king safety,
+  development, or quiet improvement) plus whether it is a critical moment;
+  it is checked so it names neither the piece, its square nor the
+  destination. Stage 2 names and highlights the piece. Stage 3 shows the move
+  (both squares and an arrow) with why it works: its verified motifs, the
+  material or mate the engine line wins, and the line itself. After stage 3
+  the button reads "All hints revealed". The stage resets whenever the
+  position changes, including coming back to an earlier position after a
+  takeback. Any hint makes the following decision assisted.
+* **Show Me** (`coach/replay.ts`): demonstrations play automatically at 0.5×,
+  1× or 2× and can be stepped through (First, Previous, Next, Last, Play/Pause,
+  Replay, clicking a move in the numbered notation, ← → Home End Space). Any
+  manual step pauses playback; at the end the line stays on the board.
+  Leaving returns to the unchanged game position.
 * **Predict the Opponent** (`coach/prediction.ts`): teaching value = mating
   idea +4, tactical motif +3, sacrifice +2, engine line wins ≥ 2 pawns +2,
   only-move gap ≥ 15 +2, punishes a loose piece +1, trade into an endgame +1;
@@ -278,7 +332,47 @@ crashed workers are restarted and the search retried (twice).
   predicted move is within 5 expected points of the best reply; "reasonable"
   within 12; otherwise missed.
 
-## 8. Ranked Rival (`rival/*`, `engine/strength.ts`)
+## 8. Board interaction, pacing and sound
+
+* **Planning** (`ui/planning.ts`): right-click and drag draws an arrow,
+  right-click on one square marks it; repeating removes it. Orange by default,
+  Shift green, Alt blue, Ctrl/Cmd red. Annotations are the user's own (never
+  engine output, also in Ranked), sit in an overlay that does not take clicks,
+  never move pieces (pieces only drag with the left button), suppress the
+  browser menu on the board, and clear on the next move, a left click or the
+  clear button. On touch screens a Plan toggle makes taps draw instead of move.
+* **Premoves** (`chess/premove.ts`): during the opponent's turn the player's
+  pieces can be moved to any square their movement pattern reaches on the
+  board as it will be after earlier premoves (blocking pieces ignored, as the
+  opponent's reply is unknown; nothing about that reply is used). The premove
+  is shown with dashed violet arrows and squares, distinct from the yellow last
+  move and the orange planning arrows. When it is the player's turn the first
+  premove is played only if it is legal in the real position; otherwise the
+  queue is cancelled. One premove replaces the previous one; with Multiple
+  premoves up to five are queued. The queue is cleared by Esc, a right-click,
+  the Cancel button, a takeback, resignation, a new game and the end of the
+  game. In timed Ranked games a premove is played after at least 0.1 s of the
+  player's clock. Premoved plies are recorded, and their time is left out of
+  the Rival's time-use model.
+* **Opponent pacing** (`engine/pacing.ts`): the Coach and the Rival pause before
+  moving. The situation sets a range (forced/obvious 0.3–0.8 s, book 0.3–0.9 s,
+  normal 0.6–1.5 s, complicated 1.2–2.5 s, time pressure 0.1–0.5 s); the pause
+  is drawn from it with seeded randomness, stretched 0.9–1.1× by level in
+  complicated positions, scaled by the speed setting (Instant 0, Fast 0.5×,
+  Natural 1×, Relaxed 1.6×), and capped on a clock at 3 % of the remaining time
+  plus half the increment and never within 3 s of zero. Time the engine already
+  spent counts toward the pause. The pause is cancelled by takebacks, new
+  games, resignation and leaving the page, and it never affects which move is
+  chosen. These ranges are this app's own; no published timings exist to copy.
+* **Sounds** (`audio/sounds.ts`): one sound per move by priority check >
+  castling > capture > move, chosen by matching the board change to a legal
+  move, so it works the same for both sides, demonstrations and replay
+  (stepping back plays a softer move sound; jumps and square selection are
+  silent). The four sounds are synthesised (filtered noise transients and short
+  tones), normalised below clipping, rendered into audio buffers once and
+  played through Web Audio after the first user gesture; they work offline.
+
+## 9. Ranked Rival (`rival/*`, `engine/strength.ts`)
 
 * **Strength ladder**: level L (1–20) fixes search depth `round(4 + 0.7·L)`,
   MultiPV (5/3/2) and a **tolerance** of `max(0, 22 − 1.15·L)` expected points.
@@ -310,7 +404,7 @@ crashed workers are restarted and the search retried (twice).
   rating (expected score ≈ 50 %). **This is an internal scale, not FIDE or any
   site's rating.**
 
-## 9. Rules (`chess/rules.ts`)
+## 10. Rules (`chess/rules.ts`)
 
 chess.js provides legal moves. Game status is computed from the full position
 history: checkmate, stalemate, dead position (insufficient material), fivefold
