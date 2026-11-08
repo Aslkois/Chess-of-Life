@@ -129,7 +129,7 @@ try {
     const stamp = page.getByTestId('board-stamp');
     await stamp.waitFor();
     assert((await stamp.getAttribute('data-cls')) === 'blunder' && (await stamp.getAttribute('data-square')) === 'f6', 'stamp must mark f6 as a blunder');
-    assert(/Qxf7#/.test(await page.getByTestId('explanation').innerText()), 'explanation should mention the mate');
+    assert((await page.getByTestId('explanation').count()) === 0, 'no explanation until it is asked for');
     assert(await page.getByTestId('evalbar').isVisible(), 'eval bar missing');
     assert(await page.getByTestId('evalgraph').first().isVisible(), 'eval graph missing');
     // the stamp follows the selected move
@@ -159,6 +159,57 @@ try {
     assert((await cur.innerText()).includes('Qxf7#'), 'last move should be current');
     assert((await page.getByTestId('board-stamp').getAttribute('data-square')) === 'f7', 'stamp should be on the last move');
     assert((await page.getByTestId('move-card').innerText()).includes('Qxf7#'), 'move card should show the last move');
+  });
+
+  await step('X1 explanations only on request: Explain, Show best, Compare, step, Return, dismissed by navigation', async () => {
+    await page.locator(`${cells}[data-ply="6"]`).click(); // 3...Nf6??
+    const gameFen = await page.getByTestId('review-board').getAttribute('data-fen');
+    assert((await page.getByTestId('explanation').count()) === 0, 'selecting a move shows no explanation');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowLeft');
+    assert((await page.getByTestId('explanation').count()) === 0, 'Next and Previous show no explanation');
+    await page.getByTestId('explain-move').click();
+    await page.waitForSelector('[data-testid="explanation"]');
+    const t = await page.getByTestId('explanation').innerText();
+    assert(/Qxf7#/.test(t) && /checkmate/.test(t), `the explanation shows the mate it allows: ${t.slice(0, 200)}`);
+    const arrow = page.locator('[data-testid="review-board"] [data-testid="teach-arrow"]').first();
+    assert(await arrow.count(), 'the explanation draws on the board');
+    await page.screenshot({ path: `${SHOTS}/x1-explain.png` });
+    // the alternative line, step by step; the game stays as it was
+    const nCells = await page.locator(cells).count();
+    await page.getByTestId('show-best-line').click();
+    assert((await page.getByTestId('explain-line').getAttribute('data-line')) === 'best', 'best line shown');
+    const startFen = await page.getByTestId('review-board').getAttribute('data-fen');
+    await page.getByTestId('line-next').click();
+    await page.getByTestId('line-next').click();
+    const f2 = await page.getByTestId('review-board').getAttribute('data-fen');
+    assert(f2 !== startFen && f2 !== gameFen, 'Next steps through the variation');
+    await page.getByTestId('line-prev').click();
+    await page.getByTestId('compare-lines').click();
+    assert((await page.getByTestId('explain-line').getAttribute('data-line')) === 'played', 'Compare switches to the played move');
+    await page.screenshot({ path: `${SHOTS}/x1-compare.png` });
+    // flipped board: annotations still point at the right squares
+    await page.keyboard.press('f');
+    await page.waitForTimeout(300);
+    const a2 = page.locator('[data-testid="review-board"] [data-testid="teach-arrow"]').first();
+    const to = await a2.getAttribute('data-to');
+    const tip = await a2.locator('polygon').evaluate((el) => { const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+    const sqBox = await sq('review-board', to).boundingBox();
+    assert(Math.abs(tip.x - (sqBox.x + sqBox.width / 2)) < sqBox.width && Math.abs(tip.y - (sqBox.y + sqBox.height / 2)) < sqBox.height, `arrow head on ${to} with the board flipped`);
+    await page.keyboard.press('f');
+    await page.getByTestId('line-return').click();
+    assert((await page.getByTestId('explain-points').count()) === 1, 'Return goes back to the explanation');
+    await page.getByTestId('explain-close').click();
+    assert((await page.getByTestId('review-board').getAttribute('data-fen')) === gameFen, 'closing restores the reviewed position');
+    assert((await page.locator(cells).count()) === nCells, 'the game itself is unchanged');
+    // navigation dismisses an open explanation at once
+    await page.getByTestId('explain-move').click();
+    await page.waitForSelector('[data-testid="explanation"]');
+    await page.keyboard.press('ArrowRight');
+    assert((await page.getByTestId('explanation').count()) === 0, 'moving on dismisses the explanation');
+    await page.locator(`${cells}[data-ply="5"]`).click();
+    assert((await page.getByTestId('explanation').count()) === 0, 'selecting a move does not explain it');
+    assert((await page.locator('[data-testid="review-board"] [data-testid="teach-arrow"]').count()) === 0, 'no instructional marks remain');
   });
 
   // ---------- Journey B ----------

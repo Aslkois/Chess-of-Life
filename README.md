@@ -15,7 +15,7 @@ your browser. No account, no server, no subscription, no limits on reviews.
 
 | Area | What you get |
 |---|---|
-| **Game Review** | Enter a game by **reconstructing it move by move** on the board (both sides, legal moves only, undo/redo, autosave) or **import PGN** (paste or file, many games per file, headers/clocks/comments/NAGs/variations preserved, clear error reporting). Both produce the same game record. Review shows accuracy for both players, the ten move classifications (Brilliant, Great, Best, Excellent, Good, Book, Inaccuracy, Mistake, Miss, Blunder), evaluation bar and graph, winning-chance changes, centipawn loss, best lines, verified tactical explanations, turning points, opening name and a written summary. Results are provisional after a quick pass and refined by a deep pass. |
+| **Game Review** | Enter a game by **reconstructing it move by move** on the board (both sides, legal moves only, undo/redo, autosave) or **import PGN** (paste or file, many games per file, headers/clocks/comments/NAGs/variations preserved, clear error reporting). Both produce the same game record. Review shows accuracy for both players, the ten move classifications (Brilliant, Great, Best, Excellent, Good, Book, Inaccuracy, Mistake, Miss, Blunder), evaluation bar and graph, winning-chance changes, centipawn loss, best lines, turning points, opening name and a written summary. Press **Explain** on any move for a visual explanation built from the engine analysis and the board: what went wrong and how it is punished, why a good move works (tactics, free material, defence, development, justified sacrifices), what a quiet move prepares, and the better or second-best move, with arrows and lines you can step through and compare. Nothing is explained until you ask. Results are provisional after a quick pass and refined by a deep pass. |
 | **Tree of Life** | Play any move from any position to branch; branches nest without limit. Stockfish can play a move, a line or 6 moves of continuation. Branches can be named, annotated, compared with the original game (evaluation, winning chances, material, verified consequences) and deleted. The original game is immutable. Outline view + branch map; transpositions share cached evaluations. PGN export with nested variations. |
 | **Coach** | A real game against an opponent whose goal is your improvement. Every move — yours and the Coach's — is rated live (provisional, then refined). Mistakes, misses and blunders get a concrete explanation (which piece, which square, the punishing reply) with **Show Why**, **Best Move** and **Compare** demonstrations on request (played automatically at 0.5×–2× or stepped through move by move), then **Retry** or **Continue**. **Take back** any move, as often as you like — after the Coach's reply or even after the game has ended. Hints in three steps for every position: what to look for, which piece, then the best move and why. Selective **Predict the Opponent** exercises at moments with real teaching value. A persistent learning profile separates independent decisions from assisted ones and reports confidence honestly. |
 | **Ranked Rival** | Competitive games with clocks (3+2 … 30+20 or untimed), resignation, draw offers, threefold / 50-move claims, automatic fivefold / 75-move / dead-position draws and FIDE time-forfeit rules. **No assistance of any kind** while the game is running — and every other part of the app is locked. The Rival plays at a fixed, calibrated level, learns only from completed Ranked games, and steers toward your demonstrated weaknesses with sound moves. Internal Glicko-2 rating, match history, adaptation log. Analysis unlocks after the game. |
@@ -85,7 +85,7 @@ service worker makes it available offline after the first visit.
 npm test
 ```
 
-185 unit/integration tests (Vitest). Highlights: complete legal games, castling /
+197 unit/integration tests (Vitest). Highlights: complete legal games, castling /
 en passant / promotion, stalemate, insufficient material, threefold vs fivefold
 and 50 vs 75-move rules, time forfeit vs insufficient material, clocks; PGN
 import (multi-game, comments, NAGs, clocks, variations, errors, `0-0`, FEN
@@ -127,7 +127,12 @@ one or five, legality at execution, cancellation, castling, promotion);
 planning (toggling, recolouring, modifier colours, square mapping in both
 orientations); sound selection (priority, en passant, castling with check,
 forward and backward steps) and synthesis (no clipping or clicks, short,
-distinct).
+distinct); Game Review explanations on real positions analysed by Stockfish
+(development with the bishop's diagonal and target, an inaccuracy that ignores a
+threat with the better move as an arrow, best and second best practically
+equal, a bad trade with its exchange sequence, a fork's attack lines, blocking a
+check, a blunder for Black, free material, a missed win, a justified sacrifice
+that the engine line declines), with every line replayed for legality.
 
 End-to-end check in a real browser (requires Playwright with Chromium):
 
@@ -135,7 +140,7 @@ End-to-end check in a real browser (requires Playwright with Chromium):
 npm run build && npm run e2e
 ```
 
-It drives the production build through 23 checks: the Game Review chooser
+It drives the production build through 24 checks: the Game Review chooser
 (initial focus, arrow keys, Tab containment, Escape, focus return);
 reconstruction with board and typed moves, undo/redo and reload; a full review
 where the board stamp, the move panel and the explanation agree; board flipping
@@ -150,7 +155,9 @@ leaving theory with the last known name kept, honest masters state, engine
 only on request), saving a repertoire line and practising it (wrong moves
 rejected and not played, Show me, the opponent replying), Review opening
 strip at a deep-linked move with the side set, and the Progress openings
-tree; three hint stages
+tree; no explanation in Game Review until Explain is
+pressed, its board marks, Show best stepping, Compare, arrows on the right
+squares with the board flipped, Return, and dismissal on navigation; three hint stages
 then "All hints revealed" and a reset in the next position; Show Me notation,
 speeds, replay and manual steps; premoves played after the Coach's reply and
 cancelled with Escape; right-click arrows and marks without moving pieces or

@@ -121,6 +121,50 @@ the board:
 If no motif explains an evaluation change, the explanation says so and shows
 the engine line instead of inventing a reason.
 
+### Explanations on request (`analysis/explainMove.ts`)
+
+Game Review shows a move's rating, evaluation and highlights while you step
+through the game, and nothing more: an explanation is built only when
+**Explain** is pressed (or E), for the selected move, and any change of
+position dismisses it with its board marks. It uses the review's own engine
+data (MultiPV lines before the move, the main line after it) and the board:
+
+* **Errors** (inaccuracy to blunder): a piece left en prise or a defender
+  removed (attackers, defenders and the winning capture, as arrows and rings);
+  a threat that already existed and is ignored; a **bad trade** (the exchange
+  on the square, from the engine line or least-valuable-attacker order cut
+  where a side would stop); the opponent's punishing reply when it is a mate,
+  a meaningful tactic or a double attack that costs material; the material
+  the engine line wins, counted from before the move; positional costs when
+  there is no tactic; otherwise an honest statement that no tactic punishes
+  it. Then the better move: arrow, icon, evaluation and what it does (its
+  tactic, the piece it saves, what it attacks or controls).
+* **Missed opportunities**: when the opponent's previous move was an error,
+  what the better move would have won.
+* **Good moves**: tactics (fork, pin, skewer and discovered attack or check
+  with their attack lines, only when something valuable is involved),
+  **free material** (why it can be taken, including whether anything can
+  recapture), deflection and removing the defender (only when the engine line
+  then takes the piece), **justified sacrifices** (with the acceptance and
+  what the line shows; if the engine line declines the offer, it says so),
+  **defence** (checking line plus block, capture or king move; the threatened
+  piece it saves; a mating threat it stops), castling, **development and
+  activity** (the diagonal a bishop controls, open files, pieces attacked and
+  how they are defended, central squares), pawn moves (squares gained, pieces
+  defended or attacked, lines opened) and **what it prepares**: the mover's
+  next quiet moves in the engine continuation, drawn as dashed numbered
+  arrows and labelled a possible plan, not a forced line.
+* **Best vs second best**: both evaluations and continuations; if they are
+  within 2 points of winning chances the explanation says they are
+  practically equal instead of inventing a difference.
+
+Lines (the played move with the engine continuation, the best line, the
+second best, the exchange) all start from the position before the move,
+are replayed move by move (so they are legal), can be stepped half-move by
+half-move, compared at the same step, and never touch the game or its tree.
+A line counts as forcing when its first two plies are checks, captures or
+replies to check, or it mates.
+
 ## 4. Openings (`analysis/openings.ts`, `services/openings.ts`, `openings/repertoire.ts`)
 
 **Reference.** The Lichess `chess-openings` dataset (CC0-1.0, 3,865 named

@@ -61,6 +61,10 @@ The panel is pinned to the board column's height and scrolls internally.
   Playing a move on the board starts a branch and switches to *Explore*: the
   board frame turns violet and a bar says where the branch left the game, with
   **Back to game** (Esc).
+* Game Review never explains a move by itself: **Explain** (E) opens the
+  explanation of the selected move, with board marks, points to select, and
+  Show best / Compare / the follow-up / the exchange as step-through lines
+  ([ and ] step, Return, Close or Esc). Moving to another position closes it.
 * Keyboard: ← → moves, Home/End, ↑ ↓ key moments, F flips, ? lists shortcuts.
   In the Coach, H asks for the next hint stage, Backspace takes back, Esc
   cancels premoves; in a demonstration ← → Home End step and Space plays or

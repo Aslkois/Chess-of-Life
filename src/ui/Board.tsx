@@ -48,6 +48,14 @@ export interface BoardProps {
    * whether the premove was accepted.
    */
   premove?: { color: 'w' | 'b'; queue: Premove[]; onAdd: (m: Premove) => boolean; onCancel: () => void } | null;
+  /** teaching marks (Game Review explanations): arrows, square rings/fills and classification icons */
+  marks?: BoardMarks | null;
+}
+
+export interface BoardMarks {
+  arrows: { from: string; to: string; color: string; dashed?: boolean; label?: string }[];
+  squares: { sq: string; color: string; style: 'ring' | 'fill' }[];
+  icons: { sq: string; cls: Classification }[];
 }
 
 /** Colour of queued premoves: distinct from the last move (yellow) and planning arrows (orange). */
@@ -79,7 +87,7 @@ function squareXY(sq: string, orientation: 'white' | 'black') {
  * review it shows the played move's classification on the destination
  * square. It never shows assistance on its own; callers decide.
  */
-export function Board({ fen, orientation, size, movable, onMove, lastMove, annotation, arrows, highlights, frame = 'normal', id = 'board', sound = true, planning, premove }: BoardProps) {
+export function Board({ fen, orientation, size, movable, onMove, lastMove, annotation, arrows, highlights, frame = 'normal', id = 'board', sound = true, planning, premove, marks }: BoardProps) {
   const { prefs } = useApp();
   const [selected, setSelected] = useState<string | null>(null);
   const [promo, setPromo] = useState<{ from: string; to: string } | null>(null);
@@ -216,6 +224,11 @@ export function Board({ fen, orientation, size, movable, onMove, lastMove, annot
     styles[m.from] = { ...styles[m.from], backgroundColor: `${PREMOVE_COLOR}${a}` };
     styles[m.to] = { ...styles[m.to], backgroundColor: `${PREMOVE_COLOR}${a}` };
   }
+  for (const m of marks?.squares ?? []) {
+    styles[m.sq] = m.style === 'fill'
+      ? { ...styles[m.sq], backgroundColor: `${m.color}73` }
+      : { ...styles[m.sq], boxShadow: `inset 0 0 0 ${Math.max(3, Math.round(size / 8 * 0.07))}px ${m.color}` };
+  }
   for (const mk of annos.marks) styles[mk.sq] = { ...styles[mk.sq], backgroundColor: `${mk.color}b3` };
   if (planStart) styles[planStart] = { ...styles[planStart], boxShadow: `inset 0 0 0 4px ${PLAN_COLORS.orange}` };
   if (selected && premoveMode) {
@@ -258,7 +271,7 @@ export function Board({ fen, orientation, size, movable, onMove, lastMove, annot
   // user arrows (solid), a preview while dragging, and queued premoves (dashed)
   const sqPx = size / 8;
   const center = (sq: string) => { const { col, row } = squareXY(sq, orientation); return [(col + 0.5) * sqPx, (row + 0.5) * sqPx] as const; };
-  const arrowEl = (key: string, from: string, to: string, color: string, opts: { dashed?: boolean; label?: string; opacity?: number } = {}) => {
+  const arrowEl = (key: string, from: string, to: string, color: string, opts: { dashed?: boolean; label?: string; opacity?: number; testid?: string } = {}) => {
     const [x1, y1] = center(from);
     const [x2, y2] = center(to);
     const len = Math.hypot(x2 - x1, y2 - y1) || 1;
@@ -268,7 +281,7 @@ export function Board({ fen, orientation, size, movable, onMove, lastMove, annot
     const sx = x1 + ux * sqPx * 0.2, sy = y1 + uy * sqPx * 0.2;
     const px = -uy * head * 0.55, py = ux * head * 0.55;
     return (
-      <g key={key} opacity={opts.opacity ?? 0.78} data-testid={opts.dashed ? 'premove-arrow' : 'plan-arrow'} data-from={from} data-to={to}>
+      <g key={key} opacity={opts.opacity ?? 0.78} data-testid={opts.testid ?? (opts.dashed ? 'premove-arrow' : 'plan-arrow')} data-from={from} data-to={to}>
         <line x1={sx} y1={sy} x2={bx} y2={by} stroke={color} strokeWidth={w} strokeLinecap="round" strokeDasharray={opts.dashed ? `${w * 1.6} ${w * 1.4}` : undefined} />
         <polygon points={`${x2},${y2} ${bx + px},${by + py} ${bx - px},${by - py}`} fill={color} />
         {opts.label && <text x={x2} y={y2 - head * 0.9} textAnchor="middle" fontSize={sqPx * 0.26} fontWeight={800} fill="#fff" stroke="#000" strokeWidth={2} paintOrder="stroke">{opts.label}</text>}
@@ -276,8 +289,10 @@ export function Board({ fen, orientation, size, movable, onMove, lastMove, annot
     );
   };
   const queue = premove?.queue ?? [];
-  const planLayer = size > 0 && (annos.arrows.length || preview || queue.length) ? (
+  const teachArrows = marks?.arrows ?? [];
+  const planLayer = size > 0 && (annos.arrows.length || preview || queue.length || teachArrows.length) ? (
     <svg className="plan-layer" width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
+      {teachArrows.map((a, i) => arrowEl(`ta${i}`, a.from, a.to, a.color, { dashed: a.dashed, label: a.label, opacity: 0.8, testid: 'teach-arrow' }))}
       {queue.map((m, i) => arrowEl(`p${i}`, m.from, m.to, PREMOVE_COLOR, { dashed: true, label: queue.length > 1 ? String(i + 1) : undefined, opacity: 0.85 }))}
       {annos.arrows.map((a, i) => arrowEl(`a${i}`, a.from, a.to, a.color))}
       {preview && arrowEl('preview', preview.from, preview.to, preview.color, { opacity: 0.55 })}
@@ -311,7 +326,12 @@ export function Board({ fen, orientation, size, movable, onMove, lastMove, annot
         customNotationStyle={{ fontSize: `${Math.max(9, Math.round(size / 52))}px`, fontWeight: 700 }}
         animationDuration={reduced ? 0 : PIECE_MS}
       />
-      <div className="board-overlay">{stamp}{planLayer}</div>
+      <div className="board-overlay">{stamp}{planLayer}{size > 0 && (marks?.icons ?? []).map((ic) => {
+        const sq = size / 8;
+        const icon = Math.max(18, Math.round(sq * 0.4));
+        const { col, row } = squareXY(ic.sq, orientation);
+        return <div key={`i${ic.sq}${ic.cls}`} className="stamp" style={{ left: Math.min((col + 1) * sq - icon * 0.8, size - icon), top: Math.max(row * sq - icon * 0.22, 0), width: icon, height: icon }} data-testid="teach-icon" data-cls={ic.cls} data-square={ic.sq}><ClassIcon cls={ic.cls} size={icon} /></div>;
+      })}</div>
       {marked > 0 && <button type="button" className="plan-clear" onClick={() => setAnnos(EMPTY_ANNOTATIONS)} onPointerDown={(e) => e.stopPropagation()} aria-label="Clear arrows and marked squares" title="Clear arrows and marks" data-testid="clear-annotations">✕</button>}
       {promo && (
         <div className="promo-overlay" role="dialog" aria-label="Choose a piece to promote to">

@@ -693,3 +693,13 @@ dialog.dialog[open] { animation: dialog-in var(--t-med) var(--ease); }
 @media (hover: none), (pointer: coarse) { .touch-only { display: inline-flex !important; } }
 .premove-chip { display: inline-flex; align-items: center; gap: var(--s-2); font-size: var(--fs-xs); color: var(--text-2); }
 .premove-chip i { width: 10px; height: 10px; border-radius: 3px; background: #a970d8; display: inline-block; }
+
+/* ---------- Game Review explanations (on request) ---------- */
+.explain { margin: 0 var(--s-4) var(--s-4); padding: var(--s-3); border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--ink-0); }
+.explain-head { display: flex; align-items: center; gap: var(--s-2); margin-bottom: var(--s-2); min-width: 0; }
+.explain .teach-actions { margin-top: var(--s-2); }
+.explain .compare-grid { margin-bottom: var(--s-2); }
+.explain-head .teach-kind { margin-left: 0; color: var(--ivory); }
+.explain .compare-col, .explain .demo-caption { background: var(--ink-1); }
+.panel-card-scroll.is-explaining { max-height: 74%; }
+.explain .teach-actions .btn { flex: 1 1 auto; white-space: nowrap; }
