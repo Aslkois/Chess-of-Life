@@ -17,9 +17,9 @@ import { OpeningsPage } from './pages/openings/OpeningsPage';
 type NavId = 'home' | 'review' | 'coach' | 'ranked' | 'openings' | 'library' | 'profile' | 'settings';
 
 const SECTION_OF: Record<string, NavId> = {
-  home: 'home', review: 'review', reconstruct: 'review', import: 'review', coach: 'coach', ranked: 'ranked', openings: 'openings', library: 'library', profile: 'profile', settings: 'settings',
+  home: 'home', review: 'review', reconstruct: 'review', import: 'review', coach: 'coach', ranked: 'ranked', openings: 'openings', explorer: 'openings', library: 'library', profile: 'profile', settings: 'settings',
 };
-const TITLES: Record<NavId, string> = { home: 'Chess of Life', review: 'Game Review', coach: 'Coach', ranked: 'Ranked Rival', openings: 'Openings', library: 'Library', profile: 'Progress', settings: 'Settings' };
+const TITLES: Record<NavId, string> = { home: 'Chess of Life', review: 'Game Review', coach: 'Coach', ranked: 'Ranked Rival', openings: 'Explorer', library: 'Library', profile: 'Progress', settings: 'Settings' };
 
 export function App() {
   const route = useRoute();
@@ -62,6 +62,7 @@ export function App() {
       case 'coach': page = <CoachPage />; break;
       case 'ranked': page = <RankedPage />; break;
       case 'openings': page = <OpeningsPage params={route.params} />; break;
+      case 'explorer': page = <OpeningsPage params={['explore', ...route.params]} />; break;
       case 'profile': page = <ProfilePage />; break;
       case 'settings': page = <SettingsPage />; break;
       default: page = <HomePage />;
@@ -98,7 +99,7 @@ export function App() {
         {item('review', 'Game Review', <IconReview />, openChooser)}
         {item('coach', 'Coach', <IconCoach />)}
         {item('ranked', 'Ranked Rival', <IconRanked />)}
-        {item('openings', 'Openings', <IconBook />)}
+        {item('openings', 'Explorer', <IconBook />)}
         <div className="nav-gap" />
         {item('library', 'Library', <IconLibrary />)}
         {item('profile', 'Progress', <IconProgress />)}

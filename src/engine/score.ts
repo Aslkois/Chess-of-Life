@@ -81,3 +81,15 @@ export function barFraction(s: Score | undefined): number {
   if (!s) return 0.5;
   return winPercent(s) / 100;
 }
+
+/**
+ * Winning chances for display: a forced mate reads as "forced mate" rather
+ * than a rounded "100%", and values near the ends keep a decimal so a mate,
+ * +10 and +5 do not all look the same.
+ */
+export function winLabel(s: Score | undefined, color: 'w' | 'b'): string {
+  if (!s) return '…';
+  if (isMateScore(s)) return povCp(s, color) > 0 ? 'forced mate' : 'mated';
+  const w = winPercentPov(s, color);
+  return w >= 99 || w <= 1 ? `${w.toFixed(1)}%` : `${w.toFixed(0)}%`;
+}

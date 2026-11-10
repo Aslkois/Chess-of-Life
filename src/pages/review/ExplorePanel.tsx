@@ -8,10 +8,11 @@ import { formatScore, winPercentPov, type Score } from '../../engine/score';
 import { BranchMap, TreeOutline } from './Tree';
 import { IconCpu, IconPlay, IconTrash } from '../../ui/icons';
 import { continuations } from '../../analysis/openings';
+import { ExplorerMoves } from '../../explorer/ExplorerMoves';
 
 const moveLabel = (ply: number, san: string) => `${Math.ceil(ply / 2)}${ply % 2 ? '.' : '…'} ${san}`;
 
-export function ExplorePanel({ tree, cur, onSelect, classOf, evalOf, onChangeTree, onDelete, branchId, busy, canEngine, onEngineMove, onEngineContinue, onTheory, showTheory }: {
+export function ExplorePanel({ tree, cur, onSelect, classOf, evalOf, onChangeTree, onDelete, branchId, busy, canEngine, onEngineMove, onEngineContinue, onTheory, showTheory, onPlay }: {
   tree: GameTree;
   cur: string;
   onSelect: (id: string) => void;
@@ -27,6 +28,8 @@ export function ExplorePanel({ tree, cur, onSelect, classOf, evalOf, onChangeTre
   /** add a catalogued continuation as a theory branch */
   onTheory?: (uci: string) => void;
   showTheory?: boolean;
+  /** play a move from the database as a branch */
+  onPlay?: (uci: string) => void;
 }) {
   const node = tree.nodes[cur];
   const theory = showTheory ? continuations(node.fen).slice(0, 6) : [];
@@ -51,6 +54,12 @@ export function ExplorePanel({ tree, cur, onSelect, classOf, evalOf, onChangeTre
           </div>
           <p className="xs faint" style={{ marginTop: 'var(--s-2)', marginBottom: 0 }}>Adds the catalogued move as a theory branch. Moves already in the tree are followed instead.</p>
         </div>
+      )}
+      {onPlay && showTheory && (
+        <details className="disclose section" data-testid="review-explorer">
+          <summary>Explorer: what others played here</summary>
+          <div style={{ marginTop: 'var(--s-2)' }}><ExplorerMoves fen={node.fen} onPlay={onPlay} compact /></div>
+        </details>
       )}
       <div className="section">
         <h3 className="section-title">Continue from this position</h3>

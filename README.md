@@ -19,7 +19,7 @@ your browser. No account, no server, no subscription, no limits on reviews.
 | **Tree of Life** | Play any move from any position to branch; branches nest without limit. Stockfish can play a move, a line or 6 moves of continuation. Branches can be named, annotated, compared with the original game (evaluation, winning chances, material, verified consequences) and deleted. The original game is immutable. Outline view + branch map; transpositions share cached evaluations. PGN export with nested variations. |
 | **Coach** | A real game against an opponent whose goal is your improvement. Every move — yours and the Coach's — is rated live (provisional, then refined). Mistakes, misses and blunders get a concrete explanation (which piece, which square, the punishing reply) with **Show Why**, **Best Move** and **Compare** demonstrations on request (played automatically at 0.5×–2× or stepped through move by move), then **Retry** or **Continue**. **Take back** any move, as often as you like — after the Coach's reply or even after the game has ended. Hints in three steps for every position: what to look for, which piece, then the best move and why. Selective **Predict the Opponent** exercises at moments with real teaching value. A persistent learning profile separates independent decisions from assisted ones and reports confidence honestly. |
 | **Ranked Rival** | Competitive games with clocks (3+2 … 30+20 or untimed), resignation, draw offers, threefold / 50-move claims, automatic fivefold / 75-move / dead-position draws and FIDE time-forfeit rules. **No assistance of any kind** while the game is running — and every other part of the app is locked. The Rival plays at a fixed, calibrated level, learns only from completed Ranked games, and steers toward your demonstrated weaknesses with sound moves. Internal Glicko-2 rating, match history, adaptation log. Analysis unlocks after the game. |
-| **Openings** | An **Opening Explorer** built on the free Lichess opening list (CC0): family, variation and sub-variation with ECO code, book status per position, transpositions recognised, the last known opening kept after leaving theory, catalogued continuations with the number of dataset lines through each, **My Games** statistics from your own games (with the games behind every number), the engine only when you ask, and an honest "not included" for master games. Personal opening statistics in Progress (family → variation → sub-variation, W/D/L, score, opening accuracy, where theory was left, over time, filters), opening identity and book status per move in Game Review, post-move opening notes in the Coach, theory branches in the Tree of Life, and a **repertoire** with practice against a training opponent (unlimited retries, forgotten-move tracking, PGN import/export), kept apart from all game statistics. Locked during Ranked play like everything else. |
+| **Explorer** | A position-based **Explorer** for any position (move sequence, FEN or PGN): moves with game counts, share, White / Draw / Black results bars and optional engine evaluations from **Masters**, **Online** (Lichess games, rating and time-control filters), a **Player**'s Lichess games, **My games** (offline) or the opening **Book**; legal moves absent from the database, notable games you can load or import into Game Review, a branching move tree, FEN/PGN in and out, and opening name, variation, ECO and book status per position. Lichess data needs a free Lichess account (Log in with Lichess or a personal token); without it those databases say so instead of showing numbers. Personal opening statistics in Progress (family → variation → sub-variation, W/D/L, score, opening accuracy, where theory was left, over time, filters), opening identity and book status per move in Game Review, post-move opening notes in the Coach, theory branches in the Tree of Life, and a **repertoire** with practice against a training opponent (unlimited retries, forgotten-move tracking, PGN import/export), kept apart from all game statistics. Locked during Ranked play like everything else. |
 | **Board** | Right-click planning arrows and marked squares (Shift/Alt/Ctrl colours, a Plan mode for touch screens), premoves in Coach and Ranked (one, or up to five queued), opponents that pause naturally before moving (Instant, Fast, Natural or Relaxed), and move, capture, check and castling sounds, all configurable under Settings → Gameplay. |
 | **Data** | IndexedDB with versioned migrations: games, drafts, reviews, engine cache, branches, Coach sessions / attempts / predictions, learning profile, Ranked matches, Rival model and adaptations, preferences. Export / import a JSON backup; delete everything. Works offline after the first visit (PWA). |
 
@@ -85,7 +85,7 @@ service worker makes it available offline after the first visit.
 npm test
 ```
 
-197 unit/integration tests (Vitest). Highlights: complete legal games, castling /
+219 unit/integration tests (Vitest). Highlights: complete legal games, castling /
 en passant / promotion, stalemate, insufficient material, threefold vs fivefold
 and 50 vs 75-move rules, time forfeit vs insufficient material, clocks; PGN
 import (multi-game, comments, NAGs, clocks, variations, errors, `0-0`, FEN
@@ -132,7 +132,15 @@ distinct); Game Review explanations on real positions analysed by Stockfish
 threat with the better move as an arrow, best and second best practically
 equal, a bad trade with its exchange sequence, a fork's attack lines, blocking a
 check, a blunder for Black, free material, a missed win, a justified sacrifice
-that the engine line declines), with every line replayed for legality.
+that the engine line declines), with every line replayed for legality; the
+reported 17.Rc8+!! (replayed from the game, classified Brilliant by the
+general rules with real Stockfish, explained consistently), mates kept apart
+from large evaluations, exchange sacrifices, bad sacrifices, sacrifices from
+already won positions, nearly equal moves; the Lichess explorer client
+(documented response shape, transposition-safe FENs, filters, token handling,
+one request at a time, 429 cooldown, offline cache, ND-JSON player stream,
+PKCE login) and the My Games database (results, transpositions, filters,
+moves not in the database).
 
 End-to-end check in a real browser (requires Playwright with Chromium):
 
@@ -140,7 +148,7 @@ End-to-end check in a real browser (requires Playwright with Chromium):
 npm run build && npm run e2e
 ```
 
-It drives the production build through 24 checks: the Game Review chooser
+It drives the production build through 25 checks: the Game Review chooser
 (initial focus, arrow keys, Tab containment, Escape, focus return);
 reconstruction with board and typed moves, undo/redo and reload; a full review
 where the board stamp, the move panel and the explanation agree; board flipping
@@ -151,8 +159,11 @@ under-promotion through the picker; multi-game PGN import with an illegal
 move; a Coach game with six hints, feedback, Show Why / Best Move / Compare
 leaving the game untouched, Retry, and takebacks after the Coach's reply
 (button and keyboard); the Opening Explorer (no premature names, Najdorf B90,
-leaving theory with the last known name kept, honest masters state, engine
-only on request), saving a repertoire line and practising it (wrong moves
+leaving theory with the last known name kept, no numbers without a Lichess
+connection, engine only on request), the explorer databases against a mocked
+Lichess (statistics and percentages, sorting, filters sent without moving the
+board, rate-limit message, games, branches, PGN export, FEN and PGN loading,
+analysing a line), saving a repertoire line and practising it (wrong moves
 rejected and not played, Show me, the opponent replying), Review opening
 strip at a deep-linked move with the side set, and the Progress openings
 tree; no explanation in Game Review until Explain is
@@ -219,10 +230,10 @@ Key decisions:
   source) apply to the engine.
 * Opening reference: lichess-org/chess-openings, CC0 (`data/openings/`), built
   into `src/data/openings.json` by `npm run openings`. Line counts in the
-  Explorer are counts of lines in this list, not of games. No master-game
-  database is bundled: none is available under terms that allow
-  redistribution in a free offline app, so the Explorer says so instead of
-  showing numbers.
+  Explorer's Book are counts of lines in this list, not of games.
+* Explorer statistics for Masters, Online and Player come from the Lichess
+  Opening Explorer API (https://lichess.org/api#tag/Opening-Explorer) and need
+  a free Lichess account; Chess.com data is not used.
 * Piece images: "Cburnett" set (CC BY-SA 3.0) bundled by react-chessboard (MIT).
 * Move sounds: synthesised in `src/audio/sounds.ts`, part of this source (public
   domain). The Chess.com sound files were considered but not used: no licence
@@ -259,8 +270,11 @@ Key decisions:
   note) rather than played.
 * Opening names come only from the catalogued list: positions it does not
   name keep the last name reached on the path, and a game that re-enters
-  theory at an unnamed position keeps its earlier name. There are no master
-  statistics (see Licences).
+  theory at an unnamed position keeps its earlier name.
+* The Lichess explorer cannot be used anonymously (it answers 401 without a
+  token), so Masters, Online and Player need a connected Lichess account.
+  The automated tests use a mocked Lichess with the documented response shape;
+  the live service was not reachable from the test environment without a token.
 * Imported and reconstructed games count in opening statistics only once your
   side is known (set it in the review, or list your PGN names in Settings).
 * There is no on-device language model; an optional local LLM layer could be

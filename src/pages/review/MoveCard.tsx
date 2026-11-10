@@ -5,7 +5,7 @@ import type { MoveReview } from '../../analysis/review';
 import type { OpeningInfo } from '../../analysis/openings';
 import type { TreeNode } from '../../chess/tree';
 import type { AnalysisResult } from '../../engine/controller';
-import { formatScore, winPercentPov } from '../../engine/score';
+import { formatScore, winLabel, winPercentPov } from '../../engine/score';
 import { ClassIcon, PendingIcon } from '../../ui/ClassIcon';
 import { IconBranch } from '../../ui/icons';
 
@@ -86,7 +86,7 @@ export function MoveCard({ node, parentFen, mr, live, opening, showClass, showEn
         <span className="move-verdict" style={{ color: info.color }} data-testid="move-class">{info.label}</span>
       </div>
       <div className="move-sub">
-        {who}'s {ORD(moveNo)} move. Winning chances {mr.winBefore.toFixed(0)}% → {mr.winAfter.toFixed(0)}%, evaluation {formatScore(mr.evalAfter)}.
+        {who}'s {ORD(moveNo)} move. Winning chances {winLabel(mr.evalBefore, mr.color)} → {winLabel(mr.evalAfter, mr.color)}, evaluation {formatScore(mr.evalAfter)}.
         {mr.provisional && <> <span className="faint">Provisional until the deeper pass finishes.</span></>}
       </div>
       {onExplain && (

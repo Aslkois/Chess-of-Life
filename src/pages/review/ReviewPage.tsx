@@ -248,6 +248,13 @@ export function ReviewPage({ gameId, ply }: { gameId?: string; ply?: string }) {
       return true;
     } catch { return false; }
   };
+  const playBranch = (uci: string) => {
+    try {
+      const r = addMove(tree, node.id, { from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] }, 'user');
+      if (!r.existed) commitTree(r.tree);
+      go(r.nodeId);
+    } catch { /* not legal here */ }
+  };
   const addTheory = (uci: string) => {
     try {
       const r = addMove(tree, node.id, { from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] }, 'theory');
@@ -422,7 +429,7 @@ export function ReviewPage({ gameId, ply }: { gameId?: string; ply?: string }) {
                 <ExplorePanel tree={tree} cur={cur} onSelect={go} classOf={classOf} evalOf={evalOf} onChangeTree={commitTree}
                   onDelete={(id) => setDeleteAsk(id)} branchId={bStart} busy={busy} canEngine={!new Chess(node.fen).isGameOver()}
                   onEngineMove={engineMove} onEngineContinue={(n) => void engineContinue(n)}
-                  showTheory={allowed(mode, 'openingInfo')} onTheory={addTheory} />
+                  showTheory={allowed(mode, 'openingInfo')} onTheory={addTheory} onPlay={playBranch} />
               </div>
             )}
             {tab === 'summary' && (

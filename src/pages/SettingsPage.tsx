@@ -137,7 +137,7 @@ export function SettingsPage() {
         <div className="small dim stack" style={{ gap: 'var(--s-2)' }}>
           <p>Chess of Life runs entirely on your device: no accounts, servers or tracking.</p>
           <p><b>Stockfish 17.1</b> (lite single-threaded WebAssembly build from stockfish.js), GPL-3.0. Licence text: <a href="./engine/COPYING.txt" target="_blank" rel="noreferrer">engine/COPYING.txt</a>.</p>
-          <p>Opening reference: {OPENING_COUNT} lines from lichess-org/chess-openings, CC0 (public domain). No master-game database is bundled, because none is available under a licence that allows redistribution; the Explorer says so instead of showing numbers. Pieces: Cburnett set, CC BY-SA 3.0. Typeface: Bricolage Grotesque, SIL Open Font License. Move sounds: synthesised by Chess of Life, public domain. chess.js (BSD-2-Clause), React (MIT), idb (ISC), react-chessboard (MIT).</p>
+          <p>Opening reference: {OPENING_COUNT} lines from lichess-org/chess-openings, CC0 (public domain). Explorer statistics for masters, online and player games come from the Lichess Opening Explorer when you connect a Lichess account; your own games are explored locally. Pieces: Cburnett set, CC BY-SA 3.0. Typeface: Bricolage Grotesque, SIL Open Font License. Move sounds: synthesised by Chess of Life, public domain. chess.js (BSD-2-Clause), React (MIT), idb (ISC), react-chessboard (MIT).</p>
           <p className="faint">Move ratings, accuracy and the Ranked rating use Chess of Life's own documented methods, not Chess.com or Lichess numbers.</p>
         </div>
       </section>
