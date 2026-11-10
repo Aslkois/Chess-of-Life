@@ -126,7 +126,7 @@ describe('Game Review explanations on real positions (Stockfish)', () => {
   it('a sound sacrifice is recognised as justified, without claiming what the line does not show', async () => {
     const { x } = await explain('r1bq1rk1/pppnnppp/4p3/3pP3/1b1P4/2NB1N2/PPP2PPP/R1BQK2R w KQ - 0 8', 'Bxh7+');
     expect(x.kind).toBe('sacrifice');
-    expect(x.points[0].text).toMatch(/offers material \(Kxh7 would take it\), and it is justified/);
+    expect(x.points[0].text).toMatch(/offers the bishop on h7 \(Kxh7 would take it\), and it is justified|Brilliant: Bxh7\+ sacrifices the bishop on h7/);
     expect(x.lines.find((l) => l.id === 'exchange')!.label).toBe('If Black takes on h7');
   }, 60000);
 });

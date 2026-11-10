@@ -2,7 +2,7 @@ import type { Classification } from '../../analysis/classify';
 import { CLASS_INFO } from '../../analysis/classify';
 import type { Explanation, XLine, XMarks, XTone } from '../../analysis/explainMove';
 import type { BoardMarks } from '../../ui/Board';
-import { formatScore } from '../../engine/score';
+import { formatScore, winLabel } from '../../engine/score';
 import { IconFirst, IconLast, IconNext, IconPrev } from '../../ui/icons';
 
 /** What the board shows while an explanation is open. */
@@ -104,7 +104,7 @@ export function ExplainPanel({ x, cls, view, onView, onClose }: { x: Explanation
             <div key={i} className={`compare-col${i === 1 ? ' is-best' : ''}`}>
               <span className="faint xs">{i === 0 ? 'Played' : bad || cmp.bLine === 'best' ? 'Engine’s choice' : 'Second best'}</span>
               <b>{side.san}</b>
-              <div>{formatScore(side.score ?? undefined)} · {side.win.toFixed(0)}% winning chances</div>
+              <div>{formatScore(side.score ?? undefined)} · {winLabel(side.score ?? undefined, x.mover)}</div>
               <div className="faint" style={{ marginTop: 4 }}>{side.line}</div>
             </div>
           ))}

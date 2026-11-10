@@ -6,7 +6,7 @@ import {
 import { analyzeMove, currentThreats, type Motif, type MoveFacts } from './motifs';
 import { formatLine, materialAlongLine, pvToSan } from './explain';
 import { CLASS_INFO, type Classification } from './classify';
-import { formatScore, isMateScore, povCp, winPercentPov, type Score } from '../engine/score';
+import { formatScore, isMateScore, povCp, winLabel, winPercentPov, type Score } from '../engine/score';
 
 /**
  * Game Review explanations, produced only when the user asks for one.
@@ -566,7 +566,13 @@ export function explainMove(inp: ExplainInput): Explanation {
     const threats = currentThreats(fenBefore);
     if (!pre.inCheck()) {
       const stillHanging = new Set(hangingPieces(fenAfter, me).map((h) => h.square));
-      const saved = threats.hanging.filter((h) => h.loss >= 2 && !stillHanging.has(h.square === from ? to : h.square));
+      // only when the move really protects it: moving it, adding a defender, or blocking/removing an attacker
+      const saved = threats.hanging.filter((h) => {
+        if (h.loss < 2 || stillHanging.has(h.square === from ? to : h.square)) return false;
+        if (h.square === from) return true;
+        const sqi = sqIdx(h.square);
+        return attackersOf(b1, sqi, me).length > attackersOf(b0, sqi, me).length || attackersOf(b1, sqi, opp).length < attackersOf(b0, sqi, opp).length;
+      });
       if (saved.length && !f.move.captured) {
         const h = saved[0];
         const moved = h.square === from;
@@ -627,13 +633,28 @@ export function explainMove(inp: ExplainInput): Explanation {
       const acc = f.acceptances[0]?.uci ?? null;
       const accept = acc ? sanOf(fenAfter, acc) : null;
       const accepted = !!acc && afterPv[0] === acc;
-      const mating = scoreAfter && isMateScore(scoreAfter) && povCp(scoreAfter, me) > 0;
-      const lineText = formatLine(fenAfter, pvToSan(fenAfter, afterPv, 6));
-      const why = mating ? `the engine line forces mate in ${Math.abs((scoreAfter as { mate: number }).mate)} (${lineText})`
-        : accepted ? (() => { const d = materialAlongLine(fenBefore, playedPv, me, 9).delta; return d >= 0 ? `after ${accept} the material comes back: ${lineText}` : `after ${accept} ${S} stays ${worth(-d)} down, but the engine still rates the position at ${formatScore(scoreAfter ?? undefined)} because of the attack: ${lineText}`; })()
+      const replies = new Chess(fenAfter).moves().length;
+      const ksq = kingSquare(b1, opp);
+      const checkers = ksq >= 0 ? attackersOf(b1, ksq, me) : [];
+      const offeredSq = acc ? acc.slice(2, 4) : to;
+      const offered = b1[sqIdx(offeredSq)];
+      const offeredName = offered ? `${pieceName(offered.t)} on ${offeredSq}` : 'material';
+      const mating = !!scoreAfter && isMateScore(scoreAfter) && povCp(scoreAfter, me) > 0;
+      // mate counted from the position before the move, including the sacrifice itself
+      const mateN = mating ? Math.abs((scoreAfter as { mate?: number }).mate ?? 0) + 1 : 0;
+      const lineText = formatLine(fenAfter, pvToSan(fenAfter, afterPv, 8));
+      const forcedNote = checkers.length >= 2 ? ` It is a double check (${listJoin(checkers.map((c) => `the ${pieceName(b1[c]!.t)} on ${sqName(c)}`))}), so only the king can move.` : '';
+      const acceptNote = accept ? (replies === 1 ? ` ${accept} is ${O}'s only legal reply.` : accepted ? ` ${O}'s best reply is to take it: ${accept}.` : '') : '';
+      const why = mating ? `after ${lineText} it is mate (mate in ${mateN} counting ${san})`
+        : accepted ? (() => { const d = materialAlongLine(fenBefore, playedPv, me, 9).delta; return d >= 0 ? `after ${lineText} the material comes back` : `after ${lineText} ${S} stays ${worth(-d)} down, but the engine still rates the position at ${formatScore(scoreAfter ?? undefined)}`; })()
         : `in the engine's main line ${O} does not take it (${lineText}), and ${S} keeps ${winPlayed.toFixed(0)}% winning chances; taking it is no better for ${O}`;
+      const alt = inp.before.find((l) => l.pv[0] && l.pv[0] !== uci);
+      const altText = alt ? ` Without the sacrifice the best option, ${sanOf(fenBefore, alt.pv[0])}, gives ${formatScore(alt.score)}${isMateScore(alt.score) ? '' : ': a large advantage, but no forced win'}.` : '';
       kind = 'sacrifice';
-      points.unshift({ text: `${san} offers material${accept ? ` (${accept} would take it)` : ''}, and it is justified: ${why}.`, fen: fenAfter, marks: mk([{ from, to, tone: 'better' }, ...(f.acceptances[0] ? [{ from: f.acceptances[0].uci.slice(0, 2), to: f.acceptances[0].uci.slice(2, 4), tone: 'threat' as XTone, dashed: true }] : [])], [], [iconPlayed]), lastMove: [from, to] });
+      const lead = cls === 'brilliant'
+        ? `Brilliant: ${san} sacrifices the ${offeredName} (${worth(Math.max(f.sacrifice, exchangeNet !== null ? -exchangeNet : 0))}).${forcedNote}${acceptNote} It is justified because ${why}.${mating && alt && !isMateScore(alt.score) ? altText : ''}`
+        : `${san} offers the ${offeredName}${accept ? ` (${accept} would take it)` : ''}, and it is justified: ${why}.${forcedNote}`;
+      points.unshift({ text: lead, fen: fenAfter, marks: mk([{ from, to, tone: 'better' }, ...(acc ? [{ from: acc.slice(0, 2), to: acc.slice(2, 4), tone: 'threat' as XTone, dashed: true }] : []), ...checkers.filter((c) => sqName(c) !== to).map((c) => ({ from: sqName(c), to: sqName(ksq), tone: 'concept' as XTone }))], [{ sq: offeredSq, tone: 'concept', style: 'ring' }], [iconPlayed]), lastMove: [from, to] });
     }
     // castling, development, pawn play
     if (kinds.has('castles')) {
@@ -691,8 +712,8 @@ export function explainMove(inp: ExplainInput): Explanation {
     compare = { a, b, approxEqual, aLine: 'played', bLine: 'best' };
     points.push({
       text: approxEqual
-        ? `The engine's first choice was ${b.san} (${formatScore(top.score)}), but the difference is negligible (${a.win.toFixed(0)}% against ${b.win.toFixed(0)}% winning chances).`
-        : `The engine's first choice was ${b.san} (${formatScore(top.score)}): ${b.win.toFixed(0)}% against ${a.win.toFixed(0)}% winning chances. Compare the two lines to see what it adds.`,
+        ? `The engine's first choice was ${b.san} (${formatScore(top.score)}), but the difference is negligible (${winLabel(a.score ?? undefined, me)} against ${winLabel(b.score ?? undefined, me)}).`
+        : `The engine's first choice was ${b.san} (${formatScore(top.score)}): ${winLabel(b.score ?? undefined, me)} against ${winLabel(a.score ?? undefined, me)}. Compare the two lines to see what it adds.`,
       fen: fenBefore, marks: bestMarks(),
     });
   } else if (!bad && second) {
@@ -706,7 +727,7 @@ export function explainMove(inp: ExplainInput): Explanation {
       points.push({
         text: approxEqual
           ? `${b.san} (${formatScore(second.score)}) is about as good: the engine sees no meaningful difference between the two.`
-          : `The next best move, ${b.san} (${formatScore(second.score)}), is clearly weaker: ${a.win.toFixed(0)}% against ${b.win.toFixed(0)}% winning chances${Math.abs(diffCp) < 50 ? ` (${Math.abs(diffCp).toFixed(1)} pawns)` : ''}. Compare the two lines to see why.`,
+          : `The next best move, ${b.san} (${formatScore(second.score)}), is clearly weaker: ${winLabel(a.score ?? undefined, me)} against ${winLabel(b.score ?? undefined, me)}${Math.abs(diffCp) < 50 ? ` (${Math.abs(diffCp).toFixed(1)} pawns)` : ''}. Compare the two lines to see why.`,
         fen: fenBefore,
         marks: mk([{ from, to, tone: 'better' }, { from: b.uci.slice(0, 2), to: b.uci.slice(2, 4), tone: 'plan' }], [], [{ sq: to, cls }]),
       });

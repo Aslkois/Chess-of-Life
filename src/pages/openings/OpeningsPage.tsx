@@ -6,9 +6,10 @@ import { PracticeTab } from './PracticeTab';
 export type OpeningsTab = 'explore' | 'repertoire' | 'practice';
 
 /**
- * Openings: the Explorer (catalogued theory, your own games, engine on
- * request), your repertoire, and practice against a training opponent.
- * Route: #/openings/<tab>/<uci,uci,...>
+ * Explorer: any position with statistics from the Lichess masters and online
+ * databases, your own games or a player's games, the opening book and the
+ * engine on request; plus your repertoire and practice.
+ * Route: #/openings/explore/<uci,uci,...>/<start FEN, URL-encoded>
  */
 export function OpeningsPage({ params }: { params: string[] }) {
   const tab: OpeningsTab = (['explore', 'repertoire', 'practice'] as const).find((t) => t === params[0]) ?? 'explore';
@@ -17,8 +18,8 @@ export function OpeningsPage({ params }: { params: string[] }) {
     <div className="page">
       <header className="page-head" style={{ marginBottom: 'var(--s-4)' }}>
         <div>
-          <h1>Openings</h1>
-          <div className="lede small">Catalogued theory from the free Lichess opening list, your own results, and practice for the lines you choose.</div>
+          <h1>Explorer</h1>
+          <div className="lede small">Any position: what masters, online players, you or a chosen player played from it, how it turned out, and what the engine thinks. Plus your repertoire and practice.</div>
         </div>
         <div className="page-head-actions">
           <div className="seg" role="tablist" aria-label="Openings section">
@@ -28,7 +29,7 @@ export function OpeningsPage({ params }: { params: string[] }) {
           </div>
         </div>
       </header>
-      {tab === 'explore' && <ExplorerTab key={`explore:${arg}`} pathArg={arg} />}
+      {tab === 'explore' && <ExplorerTab key={`explore:${arg}:${params[2] ?? ''}`} pathArg={arg === '-' ? '' : arg} fenArg={params[2]} />}
       {tab === 'repertoire' && <RepertoireTab />}
       {tab === 'practice' && <PracticeTab key={arg} lineArg={arg} />}
     </div>

@@ -445,8 +445,8 @@ try {
     await page.waitForSelector('[data-testid="premove-status"]', { timeout: 5000 });
     assert((await page.getByTestId('coach-board').getAttribute('data-premoves')) === '1', 'one premove queued and shown');
     await page.screenshot({ path: `${SHOTS}/c2-premove.png` });
-    const before = await page.locator(cells).count();
-    await page.waitForFunction((k) => document.querySelectorAll('[data-testid="movelist"] .ml-cell').length >= k + 2, before, { timeout: 60000 });
+    // your move, the Coach's reply, then the premove (one more when the Coach opened the game)
+    await page.waitForFunction((k) => document.querySelectorAll('[data-testid="movelist"] .ml-cell').length >= k, me === 'w' ? 3 : 4, { timeout: 60000 });
     const last = (await page.locator(cells).last().innerText()).trim();
     assert(/^N[fc][36]/.test(last), `the premove was played after the Coach's reply: ${last}`);
     // queue another during the Coach's turn and cancel it
@@ -460,7 +460,7 @@ try {
   });
 
   // ---------- Journey E: openings ----------
-  await step('E1 opening explorer: names, book status, theory, engine only on request, masters honest', async () => {
+  await step('E1 explorer: opening names, book, honest state without Lichess, engine only on request', async () => {
     await page.goto(URL + '#/openings');
     await page.waitForSelector('[data-testid="opening-explorer"]');
     assert(/Starting position/.test(await page.getByTestId('opening-name').innerText()), 'start position has no opening name');
@@ -471,24 +471,136 @@ try {
     name = await page.getByTestId('opening-name').innerText();
     assert(/Najdorf Variation/.test(name) && /B90/.test(name) && /Catalogued position/.test(name), `Najdorf B90 expected: ${name}`);
     assert(/e2e4,c7c5/.test(page.url()), 'the address follows the position');
-    assert((await page.getByTestId('continuation').count()) >= 5, 'catalogued continuations listed');
+    assert(/5\. Nc3 a6/.test(await page.getByTestId('xp-line').innerText()), 'current move sequence shown');
+    await page.getByTestId('db-book').click();
+    assert((await page.locator('[data-testid="xp-book"] tbody tr').count()) >= 5, 'catalogued continuations listed');
     await page.screenshot({ path: `${SHOTS}/e1-explorer.png` });
-    // leave theory
     await play('explorer-board', ['h2h4']);
     assert(/Outside the catalogued theory since 6\.h4/.test(await page.getByTestId('opening-name').innerText()), 'leaving theory is reported');
     assert(/Najdorf/.test(await page.getByTestId('opening-name').innerText()), 'last known identity kept');
     await page.keyboard.press('ArrowLeft');
-    await page.getByTestId('pane-masters').click();
-    assert(/not included/.test(await page.getByTestId('masters-unavailable').innerText()), 'masters: honest unavailable state');
+    await page.getByTestId('db-masters').click();
+    await page.waitForSelector('[data-testid="lichess-connect"]');
+    assert((await page.getByTestId('xp-table').count()) === 0, 'no numbers without a Lichess connection');
     await page.getByTestId('pane-engine').click();
     assert((await page.getByTestId('engine-lines-explorer').count()) === 0, 'no engine output before it is requested');
     await page.getByTestId('analyse-position').click();
     await page.waitForSelector('[data-testid="engine-lines-explorer"]', { timeout: 60000 });
-    await page.getByTestId('pane-mine').click();
-    await page.waitForSelector('[data-testid="my-games"]');
+    await page.getByTestId('pane-database').click();
+    await page.getByTestId('db-local').click();
+    await page.waitForSelector('[data-testid="explorer-db"]');
+  });
+
+  await step('E4 explorer databases: statistics, sorting, filters, rate limit, games, branches, FEN and PGN', async () => {
+    // Lichess is mocked here with the documented response shape (test fixture only)
+    const seen = [];
+    let limit = false;
+    const body = (fen) => {
+      const c = new Chess(fen.replace(/ 0 1$/, ' 0 1'));
+      const legal = c.moves({ verbose: true }).slice(0, 3);
+      const counts = [[500, 300, 200], [200, 100, 150], [10, 5, 30]];
+      return {
+        opening: null, white: 710, draws: 405, black: 380,
+        moves: legal.map((m, i) => ({ uci: m.from + m.to + (m.promotion ?? ''), san: m.san, averageRating: 2400 - i * 10, white: counts[i][0], draws: counts[i][1], black: counts[i][2], game: null, opening: null })),
+        topGames: [{ uci: legal[0].from + legal[0].to, id: 'tst00001', winner: 'white', white: { name: 'Fixture, A.', rating: 2700 }, black: { name: 'Fixture, B.', rating: 2650 }, year: 2001, month: '2001-05' }],
+      };
+    };
+    await page.route('https://explorer.lichess.org/**', async (route) => {
+      const u = new globalThis.URL(route.request().url());
+      seen.push(u);
+      if (limit) return route.fulfill({ status: 429, body: '' });
+      if (u.pathname.startsWith('/masters/pgn/')) return route.fulfill({ status: 200, contentType: 'application/x-chess-pgn', body: '[White "Fixture, A."]\n[Black "Fixture, B."]\n[Result "1-0"]\n\n1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 6. Be3 1-0' });
+      return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify(body(u.searchParams.get('fen'))) });
+    });
+    await page.goto(URL + '#/openings/explore/e2e4');
+    await page.evaluate(() => localStorage.setItem('col.lichess.token', 'lip_e2etoken0001'));
+    await page.reload();
+    await page.waitForSelector('[data-testid="explorer-board"]');
+    await page.getByTestId('db-masters').click();
+    await page.waitForSelector('[data-testid="xp-move"]');
+    const rows = page.getByTestId('xp-move');
+    assert((await rows.count()) === 3, 'one row per move from the database');
+    const first = await rows.first().innerText();
+    assert(/1,000/.test(first) && /67%/.test(first), `games and share: ${first}`);
+    assert(/50%/.test(await rows.first().locator('.xp-wdl').innerText()), 'results bar with percentages');
+    const req = seen.at(-1);
+    assert(req.pathname === '/masters' && /KQkq - 0 1$/.test(req.searchParams.get('fen')), `transposition-safe FEN sent: ${req.searchParams.get('fen')}`);
+    // sorting by results: the side to move is Black, the third move scores best for Black
+    await page.getByTestId('sort-score').click();
+    const top = await rows.first().getAttribute('data-uci');
+    assert(top === (await rows.nth(0).getAttribute('data-uci')) && (await rows.count()) === 3, 'sorted');
+    await page.getByTestId('sort-games').click();
+    // filters change the request without moving the board
+    const fenBefore = await page.getByTestId('explorer-board').getAttribute('data-fen');
+    await page.getByTestId('db-lichess').click();
+    await page.waitForSelector('[data-testid="xp-move"]');
+    await page.getByTestId('xp-filters-toggle').click();
+    await page.getByTestId('f-speed-bullet').click();
+    await page.getByTestId('f-rating-1000').click();
+    await page.waitForTimeout(600);
+    const lr = seen.filter((u) => u.pathname === '/lichess').at(-1);
+    assert(/bullet/.test(lr.searchParams.get('speeds')) && /1000/.test(lr.searchParams.get('ratings')), `filters sent: ${lr.search}`);
+    assert((await page.getByTestId('explorer-board').getAttribute('data-fen')) === fenBefore, 'filters keep the position');
+    // clicking a move plays it and updates the statistics
+    const uci = await rows.first().getAttribute('data-uci');
+    const nReq = seen.length;
+    await rows.first().click();
+    await page.waitForFunction((n) => document.querySelectorAll('[data-testid="xp-move"]').length > 0, null);
+    assert((await page.getByTestId('explorer-board').getAttribute('data-fen')) !== fenBefore, 'the move is played');
+    await page.waitForTimeout(500);
+    assert(seen.length > nReq, 'statistics are fetched for the new position');
+    void uci;
+    // notable games: load one into the Explorer
+    await page.getByTestId('db-masters').click();
+    await page.waitForSelector('[data-testid="xp-game"]');
+    assert(/Fixture, A\. 2700/.test(await page.getByTestId('xp-game').first().innerText()), 'real game data shown as given');
+    await page.screenshot({ path: `${SHOTS}/e4-explorer-db.png` });
+    await page.getByTestId('xp-game').first().locator('button:has-text("Load")').click();
+    await page.waitForFunction(() => /Be3/.test(document.body.innerText), null, { timeout: 5000 }).catch(() => {});
+    // rate limit (last online request: the client then waits a minute): an honest message, no numbers
+    limit = true;
+    await page.getByTestId('xp-new').click();
+    await play('explorer-board', ['d2d4']);
+    await page.waitForSelector('[data-testid="xp-error"]', { timeout: 5000 });
+    assert(/rate limit|slow down/i.test(await page.getByTestId('xp-error').innerText()), 'rate limit reported');
+    assert((await page.getByTestId('xp-move').count()) === 0, 'no statistics shown while rate-limited');
+    limit = false;
+    // branches: two different second moves are both kept
+    await page.getByTestId('xp-new').click();
+    await play('explorer-board', ['e2e4', 'e7e5']);
+    await page.keyboard.press('ArrowLeft');
+    await play('explorer-board', ['c7c5']);
+    await page.getByTestId('pane-tree').click();
+    const treeText = await page.getByTestId('xp-tree').innerText();
+    assert(/e5/.test(treeText) && /c5/.test(treeText), `both branches kept: ${treeText}`);
+    // export the exploration with its variation
+    const dl = page.waitForEvent('download');
+    await page.getByTestId('xp-export').click();
+    const file = await dl;
+    const pgn = readFileSync(await file.path(), 'utf8');
+    assert(/1\. e4 e5/.test(pgn) && /\(1\.\.\. c5\b/.test(pgn), `PGN with the branch: ${pgn}`);
+    // FEN
+    await page.getByTestId('xp-fen').click();
+    await page.getByTestId('xp-fen-input').fill('8/8/8/4k3/8/8/4P3/4K3 w - - 0 1');
+    await page.getByTestId('xp-fen-load').click();
+    assert((await page.getByTestId('explorer-board').getAttribute('data-fen')) === '8/8/8/4k3/8/8/4P3/4K3 w - - 0 1', 'FEN loaded');
+    // PGN with a variation
+    await page.getByTestId('xp-pgn').click();
+    await page.getByTestId('xp-pgn-input').fill('1. d4 d5 (1... Nf6 2. c4) 2. c4 *');
+    await page.getByTestId('xp-pgn-load').click();
+    await page.getByTestId('pane-tree').click();
+    assert(/Nf6/.test(await page.getByTestId('xp-tree').innerText()), 'PGN variations loaded');
+    // the line can be analysed in Game Review
+    await page.keyboard.press('End');
+    await page.getByTestId('xp-analyse').click();
+    await page.waitForURL(/#\/review\//);
+    await page.unroute('https://explorer.lichess.org/**');
+    await page.evaluate(() => localStorage.removeItem('col.lichess.token'));
   });
 
   await step('E2 repertoire and practice: save a line, unlimited retries, opponent replies', async () => {
+    await page.goto(URL + '#/openings/explore/e2e4,c7c5,g1f3,d7d6,d2d4,c5d4,f3d4,g8f6,b1c3,a7a6');
+    await page.waitForSelector('[data-testid="explorer-board"]');
     await page.getByTestId('add-to-repertoire').click();
     await page.getByTestId('save-line-confirm').click();
     await page.goto(URL + '#/openings/repertoire');

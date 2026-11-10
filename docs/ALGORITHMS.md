@@ -53,13 +53,24 @@ Rules, in order of precedence:
 4. **Brilliant** – all of: final depth (never provisional); EPL ≤ 2; the move
    offers **≥ 2 pawns of material** that the opponent can win by a legal
    capture sequence (static exchange on the real board, net of anything the
-   move captured, pins respected); the best *alternative* left the mover below
-   90 % (not already completely winning); the mover still has ≥ 45 % after the
+   move captured, pins respected); the mover was not already completely
+   winning without it, judged on the best *alternative* with mates kept apart
+   from large centipawn scores (both read as ~100 %): if the alternative
+   already forces mate, no; if it is merely winning (≥ 90 %), only a sacrifice
+   that turns the position into a forced mate qualifies; the mover still has ≥ 45 % after the
    move; and an **engine verification** (`analysis/verify.ts`) of the
    opponent's acceptances — a restricted search over the legal captures that
    take the material — confirms that a *real* acceptance (the material really
    stays won three plies later, or the acceptance leads to mate) leaves the
-   mover ≥ 45 % and costs the opponent ≤ 15 points compared with declining.
+   mover ≥ 45 % and costs the opponent ≤ 15 points compared with declining
+   (or is the opponent's only legal reply).
+   *Regression:* 17.Rc8+!! in 1.e4 d5 2.exd5 Qxd5 3.Nc3 Qe5+ 4.Be2 Nc6 5.Nf3
+   Qa5 6.d4 e6 7.O-O Bd7 8.Bd2 O-O-O 9.Nb5 Qb6 10.c4 Nb4 11.a4 Nf6 12.c5 Bxc5
+   13.dxc5 Qxc5 14.Rc1 Qe7 15.Rxc7+ Kb8 16.Bf4 Nfd5 used to be rated Best: the
+   old rule stopped at "the best alternative (17.Qxd5, +10.4) is already
+   completely winning" before verifying the sacrifice. The rook is offered with
+   double check, 17...Kxc8 is forced and 18.Nxa7# mates, so the sacrifice turns
+   a winning position into a forced mate, which is now recognised.
    A trap the opponent should simply not fall into (accepting loses for them,
    e.g. the Légal pattern) is therefore not Brilliant; nor is a "sacrifice"
    whose capture is immediately regained (4.Bb5 in the Scandinavian line
@@ -212,9 +223,21 @@ in the same span), the moves where the games left theory and whether it was
 the user or the opponent, and the score per month. Filters: source, colour,
 period and time control.
 
-**Master games** are not included: no openly licensed master database is
-bundled, and the app does not contact online services. The Explorer shows an
-explicit "not included" state rather than numbers.
+**Explorer databases** (`explorer/*`). *Masters*, *Online* and *Player*
+statistics come from the documented Lichess Opening Explorer
+(explorer.lichess.org), which requires a Lichess account: Log in with Lichess
+(authorization code flow with PKCE, a public client without secret or scopes)
+or a pasted personal token. The token stays in the browser's localStorage and
+is not part of backups. Requests go one at a time; after a 429 the client waits
+a minute. Answers are cached (masters 30 days, online 1 day, player 1 hour, at
+most 400 positions) and served from the cache when Lichess is unreachable.
+Positions are sent as transposition-safe FENs (legal en passant only). *My
+games* is computed from the saved games, offline, with the same White / Draw /
+Black convention and filters (source, your side, a player's name, dates).
+*Book* is the catalogued opening list. Legal moves that a database has no
+games for are listed separately; when a source only returns its most common
+moves this is said. Engine evaluations of the listed moves are optional and
+shown apart from the statistics: popularity is not quality.
 
 **Repertoire and practice.** Saved lines (SAN from the start position) for
 one colour are merged into a tree keyed by position (transpositions share

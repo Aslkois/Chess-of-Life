@@ -1,6 +1,7 @@
 import type { GameReview } from '../../analysis/review';
 import { CLASS_INFO, CLASS_ORDER } from '../../analysis/classify';
 import { ClassIcon } from '../../ui/ClassIcon';
+import { winLabel } from '../../engine/score';
 
 export function SummaryPanel({ review, whiteName, blackName, onGoto }: { review: GameReview | null; whiteName: string; blackName: string; onGoto: (nodeId: string) => void }) {
   if (!review) return <div className="section dim">Analysis is starting…</div>;
@@ -29,7 +30,7 @@ export function SummaryPanel({ review, whiteName, blackName, onGoto }: { review:
                 <button key={i} type="button" className="engine-line" onClick={() => onGoto(m.nodeId)}>
                   <ClassIcon cls={m.cls} size="sm" provisional={m.provisional} />
                   <span style={{ color: 'var(--ivory)', fontWeight: 650 }}>{Math.ceil(m.ply / 2)}{m.color === 'w' ? '.' : '…'} {m.san}</span>
-                  <span>{CLASS_INFO[m.cls].label}, winning chances {m.winBefore.toFixed(0)}% → {m.winAfter.toFixed(0)}%</span>
+                  <span>{CLASS_INFO[m.cls].label}, winning chances {winLabel(m.evalBefore, m.color)} → {winLabel(m.evalAfter, m.color)}</span>
                 </button>
               );
             })}

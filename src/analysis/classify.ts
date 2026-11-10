@@ -5,6 +5,7 @@
  * the mover's point of view (logistic model of the engine score). Expected
  * points lost (EPL) is the drop from the best available move to the move played.
  */
+import { Chess } from 'chess.js';
 import type { AnalysisResult } from '../engine/controller';
 import { isMateScore, povCp, winPercentPov, type Score } from '../engine/score';
 import { analyzeMove, type Motif } from './motifs';
@@ -99,6 +100,8 @@ export interface MoveContext {
   targetDepth: number;
   /** engine verification of a sacrifice; `null` = checked but no acceptance could be evaluated */
   sacrificeCheck?: SacrificeCheck | null;
+  /** number of legal replies the opponent has after the move (computed when absent) */
+  opponentReplies?: number;
 }
 
 export interface MoveClassification {
@@ -148,7 +151,8 @@ export function bandFor(epl: number): Classification {
  * awarded on final-depth analysis with explicit evidence; otherwise the move
  * keeps its ordinary classification.
  */
-export function classifyMove(ctx: MoveContext): MoveClassification {
+export function classifyMove(input: MoveContext): MoveClassification {
+  let ctx = input;
   const { before, after, color, uci } = ctx;
   const notes: string[] = [];
   const top = before.lines[0];
@@ -189,6 +193,9 @@ export function classifyMove(ctx: MoveContext): MoveClassification {
   if (ctx.isBook && epl <= THRESHOLDS.mistake) return { ...base, cls: 'book', provisional: false };
 
   const alternatives = before.lines.filter((l) => l.pv[0] && l.pv[0] !== uci);
+  if (ctx.opponentReplies === undefined) {
+    try { const c = new Chess(ctx.fenBefore); c.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] }); ctx = { ...ctx, opponentReplies: c.moves().length }; } catch { /* keep undefined */ }
+  }
   const kinds = new Set(motifs.map((m) => m.kind));
   const hadMate = isMateScore(scoreTop) && povCp(scoreTop, color) > 0;
   const keepsMate = isMateScore(scoreAfter) && povCp(scoreAfter, color) > 0;
@@ -212,13 +219,21 @@ export function classifyMove(ctx: MoveContext): MoveClassification {
     }
   }
 
-  // 4. Brilliant: a sound, meaningful piece/exchange sacrifice that is (nearly) best
+  // 4. Brilliant: a sound, meaningful piece/exchange sacrifice that is (nearly) best.
+  // "Already completely winning" is judged on the best alternative, with mates
+  // kept apart from large centipawn scores (both read as ~100% winning chances):
+  //  - an alternative that already forces mate: the sacrifice changes nothing;
+  //  - an alternative that is merely winning (≥ 90%): only a sacrifice that
+  //    turns the position into a forced mate still qualifies.
   if (!provisional && epl <= THRESHOLDS.excellent && facts.sacrifice >= THRESHOLDS.sacrifice) {
-    const winAlt = alternatives.length ? winPercentPov(alternatives[0].score, color) : winTop;
-    const alreadyWinning = winAlt >= THRESHOLDS.completelyWinning;
+    const alt = alternatives[0];
+    const winAlt = alt ? winPercentPov(alt.score, color) : winTop;
+    const altMates = !!alt && isMateScore(alt.score) && povCp(alt.score, color) > 0;
+    const forcesMate = keepsMate;
+    const alreadyWinning = altMates || (winAlt >= THRESHOLDS.completelyWinning && !forcesMate);
     const soundAfter = winAfter >= THRESHOLDS.soundAfter;
     if (alreadyWinning) {
-      notes.push('A sacrifice, but you were already completely winning without it.');
+      notes.push(altMates ? 'A sacrifice, but a forced mate was available without it.' : 'A sacrifice, but you were already completely winning without it.');
     } else if (soundAfter) {
       const chk = ctx.sacrificeCheck;
       if (chk === undefined) {
@@ -228,9 +243,11 @@ export function classifyMove(ctx: MoveContext): MoveClassification {
       } else if (chk) {
         const acceptCost = Math.max(0, chk.acceptWin - winAfter); // what accepting costs the opponent
         const sound = chk.acceptWin >= THRESHOLDS.soundAfter;
-        const meaningful = acceptCost <= THRESHOLDS.meaningfulAccept || ctx.legalMoves === 1;
+        const onlyReply = ctx.opponentReplies === 1;
+        const meaningful = acceptCost <= THRESHOLDS.meaningfulAccept || onlyReply;
         if (sound && meaningful) {
-          notes.push(`Sacrifices about ${facts.sacrifice} pawns of material. Accepting it (${chk.acceptUci}) still leaves you at ${chk.acceptWin.toFixed(0)}% winning chances, checked at depth ${chk.depth}.`);
+          notes.push(`Sacrifices about ${facts.sacrifice} pawns of material. Accepting it (${chk.acceptUci}${onlyReply ? ', the only legal reply' : ''}) still leaves you at ${chk.acceptWin.toFixed(0)}% winning chances, checked at depth ${chk.depth}.`);
+          if (forcesMate && winAlt >= THRESHOLDS.completelyWinning) notes.push(`It turns a winning position (${winAlt.toFixed(1)}% with the best alternative) into a forced mate.`);
           return { ...base, cls: 'brilliant' };
         }
         if (sound && !meaningful) notes.push('The offered material cannot be taken safely, so this works as a trap rather than a true sacrifice.');

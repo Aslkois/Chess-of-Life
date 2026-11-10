@@ -69,7 +69,7 @@ export interface GameReview {
  * are re-run (cheap, because engine results are cached per position). Games,
  * branches and profiles are never touched by this.
  */
-export const REVIEW_VERSION = 2;
+export const REVIEW_VERSION = 3;
 
 export interface ReviewOptions {
   quickDepth?: number;
